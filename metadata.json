@@ -1,0 +1,6 @@
+{
+  "name": "AutoBridge AA",
+  "description": "Configurare, simulare Android Auto și generare proiect Android Kotlin gata de compilare și semnare APK pentru preluarea automată a apelurilor de pe un iPhone aflat în apropiere.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
