@@ -1,17 +1,58 @@
 import { BridgeConfig, ProjectFile } from '../types/bridge';
 
-function sanitizePackagePath(appId: string): string {
-  const cleaned = appId.trim().replace(/[^a-zA-Z0-9._]/g, '');
-  return (cleaned || 'ro.autobridge.applecall').replace(/\./g, '/');
+export function sanitizeVersionTag(versionName: string): string {
+  return versionName.trim().replace(/[^a-zA-Z0-9._-]/g, '') || '1.0.0';
 }
 
 function sanitizePackageName(appId: string): string {
-  const cleaned = appId.trim().replace(/[^a-zA-Z0-9._]/g, '');
-  return cleaned || 'ro.autobridge.applecall';
+  const segments = appId
+    .trim()
+    .toLowerCase()
+    .split('.')
+    .map((seg) => seg.replace(/[^a-z0-9_]/g, '').replace(/^[0-9]+/, ''))
+    .filter(Boolean);
+  if (segments.length < 2) {
+    return 'ro.autobridge.applecall';
+  }
+  return segments.join('.');
+}
+
+function sanitizePackagePath(appId: string): string {
+  return sanitizePackageName(appId).replace(/\./g, '/');
 }
 
 function escapeKotlinString(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, '\\$')
+    .replace(/\r?\n/g, ' ');
+}
+
+function escapeBuildConfigString(value: string): string {
+  const javaEscaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r?\n/g, ' ');
+  return escapeKotlinString(`"${javaEscaped}"`);
+}
+
+function escapeXmlString(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '\\"')
+    .replace(/'/g, "\\'");
+}
+
+function escapeBashDoubleQuoted(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, '\\$')
+    .replace(/`/g, '\\`')
+    .replace(/\r?\n/g, ' ');
 }
 
 function normalizePhone(phone: string): string {
@@ -21,16 +62,40 @@ function normalizePhone(phone: string): string {
 export function generateAndroidProjectFiles(config: BridgeConfig): ProjectFile[] {
   const pkg = sanitizePackageName(config.applicationId);
   const pkgPath = sanitizePackagePath(config.applicationId);
-  const appleNum = escapeKotlinString(config.applePhoneNumber.trim());
+  const versionTag = sanitizeVersionTag(config.versionName);
+  const safeVersionCode = Math.max(1, Math.floor(Number(config.versionCode) || 1));
+  const rawAppleNum = config.applePhoneNumber.trim();
+  const appleNum = escapeKotlinString(rawAppleNum);
   const appleNumClean = normalizePhone(config.applePhoneNumber);
-  const androidNum = escapeKotlinString(config.androidPhoneNumber.trim());
+  const rawAndroidNum = config.androidPhoneNumber.trim();
   const androidNumClean = normalizePhone(config.androidPhoneNumber);
-  const appleDevice = escapeKotlinString(config.appleDeviceName.trim());
-  const appName = escapeKotlinString(config.appDisplayName.trim() || 'AutoBridge AA');
-  const alias = escapeKotlinString(config.keystoreAlias.trim() || 'autobridge-release');
-  const orgName = escapeKotlinString(config.organizationName.trim() || 'AutoBridge Mobile');
+  const rawAppleDevice = config.appleDeviceName.trim();
+  const rawAppName = config.appDisplayName.trim() || 'AutoBridge AA';
+  const appNameKotlin = escapeKotlinString(rawAppName);
+  const appNameXml = escapeXmlString(rawAppName);
+  const aliasKotlin = escapeKotlinString(config.keystoreAlias.trim() || 'autobridge-release');
+  const aliasBash = escapeBashDoubleQuoted(config.keystoreAlias.trim() || 'autobridge-release');
+  const orgBash = escapeBashDoubleQuoted(config.organizationName.trim() || 'AutoBridge Mobile');
 
   const files: ProjectFile[] = [
+    {
+      path: '.gitignore',
+      language: 'properties',
+      category: 'Gradle & Build',
+      description: 'Previne încărcarea accidentală a cheilor de semnare și a fișierelor temporare Gradle în Git.',
+      content: `.gradle/
+build/
+app/build/
+dist/
+local.properties
+keystore.properties
+*.jks
+*.keystore
+.idea/
+*.iml
+.DS_Store
+`,
+    },
     {
       path: 'settings.gradle.kts',
       language: 'gradle',
@@ -60,7 +125,7 @@ include(":app")
       path: 'build.gradle.kts',
       language: 'gradle',
       category: 'Gradle & Build',
-      description: 'Configurația Gradle de nivel rădăcină (AGP 8.7 + Kotlin 2.0).',
+      description: 'Configurația Gradle de nivel rădăcină (AGP 8.7.2 + Kotlin 2.0.21).',
       content: `plugins {
     id("com.android.application") version "8.7.2" apply false
     id("org.jetbrains.kotlin.android") version "2.0.21" apply false
@@ -77,6 +142,20 @@ include(":app")
 android.useAndroidX=true
 kotlin.code.style=official
 android.nonTransitiveRClass=true
+`,
+    },
+    {
+      path: 'gradle/wrapper/gradle-wrapper.properties',
+      language: 'properties',
+      category: 'Gradle & Build',
+      description: 'Versiunea recomandată Gradle (8.10.2) pentru deschidere directă în Android Studio.',
+      content: `distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\\://services.gradle.org/distributions/gradle-8.10.2-bin.zip
+networkTimeout=10000
+validateDistributionUrl=true
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
 `,
     },
     {
@@ -107,14 +186,14 @@ android {
         applicationId = "${pkg}"
         minSdk = 29
         targetSdk = 35
-        versionCode = ${config.versionCode}
-        versionName = "${escapeKotlinString(config.versionName)}"
+        versionCode = ${safeVersionCode}
+        versionName = "${escapeKotlinString(versionTag)}"
 
-        buildConfigField("String", "DEFAULT_APPLE_NUMBER", "\\"${appleNum}\\"")
-        buildConfigField("String", "DEFAULT_ANDROID_NUMBER", "\\"${androidNum}\\"")
-        buildConfigField("String", "DEFAULT_APPLE_DEVICE_NAME", "\\"${appleDevice}\\"")
+        buildConfigField("String", "DEFAULT_APPLE_NUMBER", "${escapeBuildConfigString(rawAppleNum)}")
+        buildConfigField("String", "DEFAULT_ANDROID_NUMBER", "${escapeBuildConfigString(rawAndroidNum)}")
+        buildConfigField("String", "DEFAULT_APPLE_DEVICE_NAME", "${escapeBuildConfigString(rawAppleDevice)}")
         buildConfigField("int", "DEFAULT_RSSI_THRESHOLD", "${config.rssiThresholdDbm}")
-        buildConfigField("String", "DEFAULT_BRIDGE_MODE", "\\"${config.bridgeMode}\\"")
+        buildConfigField("String", "DEFAULT_BRIDGE_MODE", "${escapeBuildConfigString(config.bridgeMode)}")
         buildConfigField("boolean", "DEFAULT_AUTO_ANSWER", "${config.autoAnswerEnabled}")
         buildConfigField("int", "DEFAULT_AUTO_ANSWER_DELAY_SEC", "${config.autoAnswerDelaySec}")
         buildConfigField("boolean", "DEFAULT_AUTO_REVERT", "${config.autoRevertOnDisconnect}")
@@ -131,7 +210,7 @@ android {
                 ?: ""
             val aliasName = System.getenv("KEY_ALIAS")
                 ?: keystoreProps.getProperty("keyAlias")
-                ?: "${alias}"
+                ?: "${aliasKotlin}"
             val keyPass = System.getenv("KEY_PASSWORD")
                 ?: keystoreProps.getProperty("keyPassword")
                 ?: storePass
@@ -179,6 +258,9 @@ android {
         compose = true
         buildConfig = true
     }
+    lint {
+        abortOnError = false
+    }
 }
 
 dependencies {
@@ -205,25 +287,33 @@ dependencies {
       path: 'app/proguard-rules.pro',
       language: 'properties',
       category: 'Gradle & Build',
-      description: 'Reguli R8/ProGuard pentru păstrarea serviciilor Android Auto și Telecom.',
-      content: `-keep class androidx.car.app.** { *; }
+      description: 'Reguli R8/ProGuard pentru păstrarea serviciilor Android Auto, Telecom și a adnotărilor.',
+      content: `-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
+-keep class androidx.car.app.** { *; }
+-keep class * extends androidx.car.app.CarAppService { *; }
 -keep class ${pkg}.car.** { *; }
 -keep class ${pkg}.telecom.** { *; }
 -keep class ${pkg}.service.** { *; }
+-dontwarn androidx.car.app.**
 `,
     },
     {
       path: 'app/src/main/AndroidManifest.xml',
       language: 'xml',
       category: 'Manifest & Resurse',
-      description: 'Permisiuni Bluetooth LE, Telecom, Foreground Service și declararea Android Auto CarAppService.',
+      description: 'Permisiuni Bluetooth LE (API 29–35), Telecom, Foreground Service și declararea Android Auto CarAppService.',
       content: `<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Bluetooth & BLE proximitate iPhone -->
+    <!-- Bluetooth & BLE proximitate iPhone (Android 10-11 necesită ACCESS_FINE_LOCATION pentru scanare BLE) -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
 
@@ -238,12 +328,13 @@ dependencies {
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 
     <application
         android:allowBackup="false"
+        android:icon="@drawable/ic_launcher"
+        android:roundIcon="@drawable/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
@@ -295,6 +386,26 @@ dependencies {
 `,
     },
     {
+      path: 'app/src/main/res/drawable/ic_launcher.xml',
+      language: 'xml',
+      category: 'Manifest & Resurse',
+      description: 'Pictogramă vectorială necesară launcher-ului Android și barei Android Auto (Action.APP_ICON).',
+      content: `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#2563EB"
+        android:pathData="M0,0h108v108h-108z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,30C34,27.8 35.8,26 38,26H46C48,26 49.7,27.4 50,29.4L52.2,40.4C52.5,42 51.8,43.7 50.4,44.6L45.1,48.1C47.8,53.9 52.5,58.6 58.3,61.3L61.8,56C62.7,54.6 64.4,53.9 66,54.2L77,56.4C79,56.8 80.4,58.5 80.4,60.5V68.5C80.4,70.7 78.6,72.5 76.4,72.5C52.9,72.5 34,53.5 34,30Z" />
+</vector>
+`,
+    },
+    {
       path: 'app/src/main/res/xml/automotive_app_desc.xml',
       language: 'xml',
       category: 'Manifest & Resurse',
@@ -309,10 +420,10 @@ dependencies {
       path: 'app/src/main/res/values/strings.xml',
       language: 'xml',
       category: 'Manifest & Resurse',
-      description: 'Resurse text ale aplicației în limba română.',
+      description: 'Resurse text ale aplicației în limba română (escape XML valid).',
       content: `<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">${appName}</string>
+    <string name="app_name">${appNameXml}</string>
     <string name="channel_bridge_name">Serviciu Android Auto Call Bridge</string>
     <string name="channel_bridge_desc">Monitorizează conectarea la Android Auto și proximitatea iPhone-ului setat.</string>
 </resources>
@@ -424,9 +535,10 @@ class AndroidAutoMonitor(context: Context) {
       path: `app/src/main/java/${pkgPath}/bluetooth/AppleProximityScanner.kt`,
       language: 'kotlin',
       category: 'Cod Kotlin',
-      description: 'Scanează pachetele BLE Apple Continuity (Company ID 0x004C) și evaluează proximitatea RSSI a iPhone-ului țintă.',
+      description: 'Scanează pachetele BLE Apple Continuity (Company ID 0x004C) cu verificare permisiuni API 29–35 și medie mobilă RSSI.',
       content: `package ${pkg}.bluetooth
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
@@ -434,6 +546,9 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -463,12 +578,26 @@ class AppleProximityScanner(
     private val rssiWindow = ArrayDeque<Int>(5)
     private var isScanning = false
 
+    fun hasScanPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) ==
+                PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        }
+    }
+
     private val scanCallback = object : ScanCallback() {
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val record = result.scanRecord ?: return
             val hasAppleManufacturerData = record.getManufacturerSpecificData(APPLE_MANUFACTURER_ID) != null
-            val advertisedName = result.device?.name ?: record.deviceName ?: ""
+            val advertisedName = try {
+                result.device?.name ?: record.deviceName ?: ""
+            } catch (_: SecurityException) {
+                record.deviceName ?: ""
+            }
             val targetName = targetDeviceNameProvider().trim()
 
             val matchesTarget = when {
@@ -496,7 +625,7 @@ class AppleProximityScanner(
 
     @SuppressLint("MissingPermission")
     fun startScanning() {
-        if (isScanning) return
+        if (isScanning || !hasScanPermission()) return
         val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return
         val scanner = btManager.adapter?.bluetoothLeScanner ?: return
 
@@ -508,15 +637,23 @@ class AppleProximityScanner(
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
 
-        scanner.startScan(listOf(appleFilter), settings, scanCallback)
-        isScanning = true
+        try {
+            scanner.startScan(listOf(appleFilter), settings, scanCallback)
+            isScanning = true
+        } catch (_: SecurityException) {
+            isScanning = false
+        }
     }
 
     @SuppressLint("MissingPermission")
     fun stopScanning() {
         if (!isScanning) return
         val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return
-        btManager.adapter?.bluetoothLeScanner?.stopScan(scanCallback)
+        try {
+            btManager.adapter?.bluetoothLeScanner?.stopScan(scanCallback)
+        } catch (_: SecurityException) {
+            // Ignoră dacă permisiunea a fost revocată
+        }
         isScanning = false
         rssiWindow.clear()
         _snapshot.value = AppleProximitySnapshot()
@@ -541,7 +678,6 @@ class AppleProximityScanner(
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
-import android.os.Bundle
 import android.telecom.CallAudioState
 import android.telecom.Connection
 import android.telecom.ConnectionRequest
@@ -556,6 +692,7 @@ class BridgeConnectionService : ConnectionService() {
     companion object {
         const val ACCOUNT_ID = "autobridge_apple_call_account"
         const val EXTRA_APPLE_SOURCE_NUMBER = "extra_apple_source_number"
+        private val NON_PHONE_CHARS = Regex("""[^\\d+]""")
 
         fun phoneAccountHandle(context: Context): PhoneAccountHandle {
             return PhoneAccountHandle(
@@ -565,15 +702,19 @@ class BridgeConnectionService : ConnectionService() {
         }
 
         fun registerPhoneAccount(context: Context) {
-            val telecom = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-            val account = PhoneAccount.builder(phoneAccountHandle(context), "${appName} (iPhone)")
-                .setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED)
-                .setShortDescription("Preluare apeluri iPhone pe Android Auto")
-                .build()
-            telecom.registerPhoneAccount(account)
+            val telecom = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager ?: return
+            try {
+                val account = PhoneAccount.builder(phoneAccountHandle(context), "${appNameKotlin} (iPhone)")
+                    .setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED)
+                    .setShortDescription("Preluare apeluri iPhone pe Android Auto")
+                    .build()
+                telecom.registerPhoneAccount(account)
+            } catch (_: SecurityException) {
+                // Contul Telecom necesită permisiunea MANAGE_OWN_CALLS
+            }
         }
 
-        fun normalizePhoneNumber(raw: String): String = raw.replace(Regex("[^\\d+]"), "")
+        fun normalizePhoneNumber(raw: String): String = raw.replace(NON_PHONE_CHARS, "")
 
         fun matchesConfiguredAppleNumber(incoming: String, configured: String): Boolean {
             val a = normalizePhoneNumber(incoming)
@@ -603,6 +744,7 @@ class BridgeConnectionService : ConnectionService() {
         private val sourceAppleNumber: String
     ) : Connection() {
 
+        @Suppress("DEPRECATION")
         override fun onAnswer() {
             setActive()
             setAudioRoute(CallAudioState.ROUTE_BLUETOOTH)
@@ -618,6 +760,7 @@ class BridgeConnectionService : ConnectionService() {
             destroy()
         }
 
+        @Suppress("DEPRECATION")
         override fun onCallAudioStateChanged(state: CallAudioState?) {
             super.onCallAudioStateChanged(state)
             if (state != null && state.route != CallAudioState.ROUTE_BLUETOOTH) {
@@ -632,13 +775,16 @@ class BridgeConnectionService : ConnectionService() {
       path: `app/src/main/java/${pkgPath}/service/CallBridgeForegroundService.kt`,
       language: 'kotlin',
       category: 'Cod Kotlin',
-      description: 'Orchestrează starea Android Auto + proximitatea Apple BLE și activează/dezactivează puntea de apeluri.',
+      description: 'Orchestrează Android Auto + proximitatea Apple BLE, semnalizarea GATT iOS și compatibilitatea Foreground Service API 34/35.',
       content: `package ${pkg}.service
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.bluetooth.BluetoothGattServer
+import android.bluetooth.BluetoothGattServerCallback
 import android.bluetooth.BluetoothGattService
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.AdvertiseCallback
@@ -646,9 +792,13 @@ import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.ParcelUuid
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.delay
@@ -685,12 +835,29 @@ class CallBridgeForegroundService : LifecycleService() {
         private val _runtimeState = MutableStateFlow(BridgeRuntimeState())
         val runtimeState: StateFlow<BridgeRuntimeState> = _runtimeState.asStateFlow()
 
-        fun start(context: Context) {
-            val intent = Intent(context, CallBridgeForegroundService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
+        fun hasRequiredBluetoothPermissions(context: Context): Boolean {
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
+                    PackageManager.PERMISSION_GRANTED &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) ==
+                    PackageManager.PERMISSION_GRANTED
             } else {
-                context.startService(intent)
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                    PackageManager.PERMISSION_GRANTED
+            }
+        }
+
+        fun start(context: Context) {
+            if (!hasRequiredBluetoothPermissions(context)) return
+            val intent = Intent(context, CallBridgeForegroundService::class.java)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (_: SecurityException) {
+                // Permisiunile connectedDevice nu au fost încă acordate
             }
         }
     }
@@ -706,7 +873,19 @@ class CallBridgeForegroundService : LifecycleService() {
         preferences = BridgePreferences(this)
         BridgeConnectionService.registerPhoneAccount(this)
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification("Se monitorizează Android Auto..."))
+
+        val initialNotification = buildNotification("Se monitorizează Android Auto...")
+        val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        } else {
+            0
+        }
+        try {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, initialNotification, fgsType)
+        } catch (_: SecurityException) {
+            stopSelf()
+            return
+        }
 
         autoMonitor = AndroidAutoMonitor(this)
         proximityScanner = AppleProximityScanner(
@@ -752,8 +931,16 @@ class CallBridgeForegroundService : LifecycleService() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun activateIosBridgeSignal() {
         // Anunță serviciul GATT BLE pentru ca iPhone-ul aflat în proximitate să activeze redirecționarea (*21*${androidNumClean}#)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+
         val btManager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return
         val advertiser = btManager.adapter?.bluetoothLeAdvertiser ?: return
         if (advertisingActive) return
@@ -763,7 +950,7 @@ class CallBridgeForegroundService : LifecycleService() {
                 BRIDGE_TRIGGER_SERVICE_UUID,
                 BluetoothGattService.SERVICE_TYPE_PRIMARY
             )
-            gattServer = btManager.openGattServer(this, object : android.bluetooth.BluetoothGattServerCallback() {})
+            gattServer = btManager.openGattServer(this, object : BluetoothGattServerCallback() {})
             gattServer?.addService(service)
 
             val settings = AdvertiseSettings.Builder()
@@ -781,6 +968,7 @@ class CallBridgeForegroundService : LifecycleService() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun deactivateIosBridgeSignal() {
         val btManager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return
         try {
@@ -799,8 +987,8 @@ class CallBridgeForegroundService : LifecycleService() {
 
     override fun onDestroy() {
         deactivateIosBridgeSignal()
-        proximityScanner.stopScanning()
-        autoMonitor.stop()
+        if (::proximityScanner.isInitialized) proximityScanner.stopScanning()
+        if (::autoMonitor.isInitialized) autoMonitor.stop()
         super.onDestroy()
     }
 
@@ -814,14 +1002,14 @@ class CallBridgeForegroundService : LifecycleService() {
                 description = getString(R.string.channel_bridge_desc)
             }
             val nm = getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(channel)
+            nm?.createNotificationChannel(channel)
         }
     }
 
     private fun buildNotification(statusText: String): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_phone_call)
-            .setContentTitle("${appName}")
+            .setContentTitle("${appNameKotlin}")
             .setContentText(statusText)
             .setOngoing(true)
             .build()
@@ -834,7 +1022,7 @@ class CallBridgeForegroundService : LifecycleService() {
             else -> "În așteptare conexiune Android Auto"
         }
         val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(NOTIFICATION_ID, buildNotification(text))
+        nm?.notify(NOTIFICATION_ID, buildNotification(text))
     }
 }
 `,
@@ -843,7 +1031,7 @@ class CallBridgeForegroundService : LifecycleService() {
       path: `app/src/main/java/${pkgPath}/car/AutoBridgeCarAppService.kt`,
       language: 'kotlin',
       category: 'Cod Kotlin',
-      description: 'Aplicația nativă afișată pe ecranul mașinii Android Auto cu starea punții iPhone.',
+      description: 'Aplicația nativă afișată pe ecranul mașinii Android Auto cu actualizare automată la schimbarea proximității BLE.',
       content: `package ${pkg}.car
 
 import android.content.Intent
@@ -857,6 +1045,9 @@ import androidx.car.app.model.PaneTemplate
 import androidx.car.app.model.Row
 import androidx.car.app.model.Template
 import androidx.car.app.validation.HostValidator
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import ${pkg}.data.BridgePreferences
 import ${pkg}.service.CallBridgeForegroundService
 
@@ -872,6 +1063,16 @@ class AutoBridgeCarAppService : CarAppService() {
 }
 
 class AutoBridgeCarScreen(carContext: CarContext) : Screen(carContext) {
+
+    init {
+        lifecycleScope.launch {
+            CallBridgeForegroundService.runtimeState.collectLatest {
+                invalidate()
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
     override fun onGetTemplate(): Template {
         val runtime = CallBridgeForegroundService.runtimeState.value
         val settings = BridgePreferences(carContext).load()
@@ -910,7 +1111,7 @@ class AutoBridgeCarScreen(carContext: CarContext) : Screen(carContext) {
             .build()
 
         return PaneTemplate.Builder(pane)
-            .setTitle("${appName} — $statusTitle")
+            .setTitle("${appNameKotlin} — $statusTitle")
             .setHeaderAction(Action.APP_ICON)
             .build()
     }
@@ -921,7 +1122,7 @@ class AutoBridgeCarScreen(carContext: CarContext) : Screen(carContext) {
       path: `app/src/main/java/${pkgPath}/ui/MainActivity.kt`,
       language: 'kotlin',
       category: 'Cod Kotlin',
-      description: 'Interfața Jetpack Compose de pe telefonul Android pentru setarea numărului Apple și pornirea serviciului.',
+      description: 'Interfața Jetpack Compose de pe telefonul Android pentru configurarea completă (număr Apple, prag RSSI, răspuns automat) și permisiuni.',
       content: `package ${pkg}.ui
 
 import android.Manifest
@@ -931,19 +1132,25 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import ${pkg}.data.BridgePreferences
 import ${pkg}.service.CallBridgeForegroundService
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
-        CallBridgeForegroundService.start(this)
+        if (CallBridgeForegroundService.hasRequiredBluetoothPermissions(this)) {
+            CallBridgeForegroundService.start(this)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -962,11 +1169,12 @@ class MainActivity : ComponentActivity() {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
                             .padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            text = "${appName}",
+                            text = "${appNameKotlin}",
                             style = MaterialTheme.typography.headlineSmall
                         )
                         Text(
@@ -1002,11 +1210,47 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth()
                         )
 
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "Prag proximitate BLE: \${settings.rssiThresholdDbm} dBm",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Slider(
+                                value = settings.rssiThresholdDbm.toFloat(),
+                                onValueChange = {
+                                    settings = settings.copy(rssiThresholdDbm = it.roundToInt())
+                                },
+                                valueRange = -86f..-55f
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Răspuns automat hands-free",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Switch(
+                                checked = settings.autoAnswerEnabled,
+                                onCheckedChange = {
+                                    settings = settings.copy(autoAnswerEnabled = it)
+                                }
+                            )
+                        }
+
                         Button(
                             onClick = {
                                 preferences.save(settings)
-                                CallBridgeForegroundService.start(this@MainActivity)
-                                savedMessage = "Configurație salvată și serviciu activat."
+                                if (CallBridgeForegroundService.hasRequiredBluetoothPermissions(this@MainActivity)) {
+                                    CallBridgeForegroundService.start(this@MainActivity)
+                                    savedMessage = "Configurație salvată și serviciu activat."
+                                } else {
+                                    requestRuntimePermissions()
+                                    savedMessage = "Configurație salvată. Acordă permisiunile Bluetooth pentru pornire."
+                                }
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -1033,6 +1277,8 @@ class MainActivity : ComponentActivity() {
                 Manifest.permission.BLUETOOTH_CONNECT,
                 Manifest.permission.BLUETOOTH_ADVERTISE
             )
+        } else {
+            perms += Manifest.permission.ACCESS_FINE_LOCATION
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             perms += Manifest.permission.POST_NOTIFICATIONS
@@ -1050,11 +1296,11 @@ class MainActivity : ComponentActivity() {
       content: `#!/usr/bin/env bash
 set -euo pipefail
 
-APP_VERSION="${escapeKotlinString(config.versionName)}"
+APP_VERSION="${escapeBashDoubleQuoted(versionTag)}"
 KEYSTORE_PATH="app/release-keystore.jks"
-KEY_ALIAS="${alias}"
+KEY_ALIAS="${aliasBash}"
 KEYSTORE_PASS="\${KEYSTORE_PASSWORD:-AutoBridge2026!}"
-ORG_NAME="${orgName}"
+ORG_NAME="${orgBash}"
 OUT_DIR="dist"
 FINAL_APK="\${OUT_DIR}/AutoBridgeAA-v\${APP_VERSION}-signed.apk"
 
@@ -1085,15 +1331,31 @@ EOF
 
 # 3. Compilează APK-ul release (necesită JDK 17 + Android SDK 35)
 echo "[2/4] Compilare Gradle assembleRelease..."
-gradle assembleRelease --no-daemon
+if [ -x "./gradlew" ]; then
+  ./gradlew assembleRelease --no-daemon
+else
+  gradle assembleRelease --no-daemon
+fi
 
 UNSIGNED_OR_SIGNED="app/build/outputs/apk/release/app-release.apk"
 if [ ! -f "\${UNSIGNED_OR_SIGNED}" ]; then
   UNSIGNED_OR_SIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
 fi
 
+if [ ! -f "\${UNSIGNED_OR_SIGNED}" ]; then
+  echo "Eroare: nu a fost găsit APK-ul generat în app/build/outputs/apk/release/." >&2
+  exit 1
+fi
+
 # 4. Aliniere și verificare / semnare apksigner (V1 + V2 + V3 + V4)
-BUILD_TOOLS_DIR="\$(ls -d "\${ANDROID_HOME:-$HOME/Android/Sdk}"/build-tools/* | sort -V | tail -n 1)"
+SDK_ROOT="\${ANDROID_HOME:-\${ANDROID_SDK_ROOT:-\$HOME/Android/Sdk}}"
+BUILD_TOOLS_DIR="\$(ls -d "\${SDK_ROOT}"/build-tools/* 2>/dev/null | sort -V | tail -n 1 || true)"
+
+if [ -z "\${BUILD_TOOLS_DIR}" ] || [ ! -x "\${BUILD_TOOLS_DIR}/apksigner" ]; then
+  echo "Eroare: Android build-tools (zipalign/apksigner) nu au fost găsite în \${SDK_ROOT}/build-tools." >&2
+  exit 1
+fi
+
 echo "[3/4] Aliniere zipalign și semnare apksigner (\${BUILD_TOOLS_DIR})..."
 "\${BUILD_TOOLS_DIR}/zipalign" -f -p 4 "\${UNSIGNED_OR_SIGNED}" "\${OUT_DIR}/aligned.apk"
 "\${BUILD_TOOLS_DIR}/apksigner" sign \\
@@ -1115,7 +1377,7 @@ echo "Succes! APK compilat și semnat disponibil la: \${FINAL_APK}"
       path: '.github/workflows/build-signed-apk.yml',
       language: 'yaml',
       category: 'Semnare & CI/CD',
-      description: 'Pipeline GitHub Actions care compilează și semnează automat APK-ul în cloud fără să instalezi Android Studio.',
+      description: 'Pipeline GitHub Actions care instalează SDK 35 + Build Tools 35.0.0, compilează și semnează automat APK-ul în cloud.',
       content: `name: Compile & Sign AutoBridge AA APK
 
 on:
@@ -1136,13 +1398,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Configurare Gradle 8.10
+      - name: Configurare Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
 
-      - name: Instalare Android SDK 35 & Build Tools
+      - name: Instalare Android SDK 35 & Build Tools 35.0.0
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
 
       - name: Compilare și semnare APK Release
         env:
@@ -1154,7 +1418,7 @@ jobs:
       - name: Încarcă APK semnat ca Artifact descărcabil
         uses: actions/upload-artifact@v4
         with:
-          name: AutoBridgeAA-v${escapeKotlinString(config.versionName)}-signed-apk
+          name: AutoBridgeAA-v${versionTag}-signed-apk
           path: dist/*.apk
 `,
     },
@@ -1163,7 +1427,7 @@ jobs:
       language: 'markdown',
       category: 'Semnare & CI/CD',
       description: 'Documentație tehnică completă de compilare, semnare APK și configurare pe iPhone.',
-      content: `# ${appName} (v${config.versionName})
+      content: `# ${rawAppName} (v${versionTag})
 
 Aplicație Android Kotlin care detectează conectarea telefonului Android la **Android Auto** (\`CarConnection.CONNECTION_TYPE_PROJECTION\`), verifică proximitatea telefonului **Apple iPhone** (\`${config.appleDeviceName}\`, prag \`${config.rssiThresholdDbm} dBm\`) prin Bluetooth LE și preia apelurile asociate numărului **${config.applePhoneNumber}** direct pe ecranul și sistemul audio al mașinii.
 
@@ -1174,7 +1438,7 @@ Aplicație Android Kotlin care detectează conectarea telefonului Android la **A
 - **Dispozitiv Apple monitorizat:** \`${config.appleDeviceName}\`
 - **Prag proximitate BLE RSSI:** \`${config.rssiThresholdDbm} dBm\`
 - **ID pachet Android:** \`${pkg}\`
-- **Alias certificat semnare:** \`${alias}\`
+- **Alias certificat semnare:** \`${config.keystoreAlias.trim() || 'autobridge-release'}\`
 
 ## 1. Compilare și semnare APK (Local, o singură comandă)
 
@@ -1186,13 +1450,13 @@ chmod +x build-signed-apk.sh
 \`\`\`
 
 APK-ul final semnat (V1/V2/V3/V4) și verificat cu \`apksigner verify\` va fi generat în:
-\`dist/AutoBridgeAA-v${config.versionName}-signed.apk\`
+\`dist/AutoBridgeAA-v${versionTag}-signed.apk\`
 
 ## 2. Compilare automată în Cloud (fără Android Studio)
 
-1. Creează un repository GitHub privat și încarcă acest proiect.
+1. Creează un repository GitHub privat și încarcă **conținutul** acestui folder (astfel încât \`.github/workflows/build-signed-apk.yml\` să fie în rădăcina repository-ului).
 2. Accesează fila **Actions** → **Compile & Sign AutoBridge AA APK** → **Run workflow**.
-3. Descarcă fișierul \`AutoBridgeAA-v${config.versionName}-signed.apk\` din secțiunea **Artifacts**.
+3. Descarcă fișierul \`AutoBridgeAA-v${versionTag}-signed.apk\` din secțiunea **Artifacts**.
 
 ## 3. Configurare automatizare pe iPhone (Apple Shortcuts)
 

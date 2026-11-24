@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Check, Copy, Download, ShieldCheck, Smartphone, Terminal, Workflow } from 'lucide-react';
 import { BridgeConfig } from '../types/bridge';
+import { getExportArchiveNames } from '../lib/zipExporter';
 
 interface ApkBuildGuideProps {
   config: BridgeConfig;
@@ -22,7 +23,8 @@ export function ApkBuildGuide({
   const [copiedCmd, setCopiedCmd] = useState(false);
 
   const androidClean = normalizePhone(config.androidPhoneNumber);
-  const localBuildCommand = `unzip AutoBridgeAA-v${config.versionName}-Android-APK-Project.zip && cd AutoBridgeAA-v${config.versionName} && chmod +x build-signed-apk.sh && ./build-signed-apk.sh`;
+  const { rootFolderName, zipFileName } = getExportArchiveNames(config);
+  const localBuildCommand = `unzip ${zipFileName} && cd ${rootFolderName} && chmod +x build-signed-apk.sh && ./build-signed-apk.sh`;
 
   const copyCommand = async () => {
     try {
