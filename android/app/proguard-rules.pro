@@ -1,0 +1,7 @@
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
+-keep class androidx.car.app.** { *; }
+-keep class * extends androidx.car.app.CarAppService { *; }
+-keep class ro.autobridge.applecall.car.** { *; }
+-keep class ro.autobridge.applecall.telecom.** { *; }
+-keep class ro.autobridge.applecall.service.** { *; }
+-dontwarn androidx.car.app.**

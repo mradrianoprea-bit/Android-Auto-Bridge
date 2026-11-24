@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AutoBridge AA</string>
+    <string name="channel_bridge_name">Serviciu Android Auto Call Bridge</string>
+    <string name="channel_bridge_desc">Monitorizează conectarea la Android Auto și proximitatea iPhone-ului setat.</string>
+</resources>

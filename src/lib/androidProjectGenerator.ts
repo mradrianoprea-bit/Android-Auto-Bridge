@@ -79,6 +79,20 @@ export function generateAndroidProjectFiles(config: BridgeConfig): ProjectFile[]
 
   const files: ProjectFile[] = [
     {
+      path: '.gitattributes',
+      language: 'properties',
+      category: 'Gradle & Build',
+      description: 'Forțează sfârșituri de linie LF pe scripturile bash și fișierele sursă pentru push de pe Windows/macOS/Linux.',
+      content: `* text=auto eol=lf
+*.sh text eol=lf
+*.kt text eol=lf
+*.kts text eol=lf
+*.xml text eol=lf
+*.yml text eol=lf
+*.properties text eol=lf
+`,
+    },
+    {
       path: '.gitignore',
       language: 'properties',
       category: 'Gradle & Build',
@@ -1384,6 +1398,9 @@ on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build-signed-apk:

@@ -6,3 +6,15 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Android / Gradle / Keystore secrets
+android/.gradle/
+android/build/
+android/app/build/
+android/dist/
+android/local.properties
+android/keystore.properties
+android/**/*.jks
+android/**/*.keystore
+.idea/
+*.iml
