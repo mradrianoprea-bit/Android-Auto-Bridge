@@ -21,16 +21,17 @@ android {
         applicationId = "ro.autobridge.applecall"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         buildConfigField("String", "DEFAULT_APPLE_NUMBER", "\"+40 722 450 890\"")
         buildConfigField("String", "DEFAULT_ANDROID_NUMBER", "\"+40 744 112 300\"")
         buildConfigField("String", "DEFAULT_APPLE_DEVICE_NAME", "\"iPhone 15 Pro — Adrian\"")
+        buildConfigField("String", "DEFAULT_APPLE_DEVICE_ADDRESS", "\"\"")
         buildConfigField("int", "DEFAULT_RSSI_THRESHOLD", "-72")
-        buildConfigField("String", "DEFAULT_BRIDGE_MODE", "\"ios_shortcut_forwarding\"")
+        buildConfigField("String", "DEFAULT_BRIDGE_MODE", "\"ancs_busy_forward\"")
         buildConfigField("boolean", "DEFAULT_AUTO_ANSWER", "false")
-        buildConfigField("int", "DEFAULT_AUTO_ANSWER_DELAY_SEC", "3")
+        buildConfigField("int", "DEFAULT_AUTO_ANSWER_DELAY_SEC", "2")
         buildConfigField("boolean", "DEFAULT_AUTO_REVERT", "true")
         buildConfigField("boolean", "DEFAULT_STRICT_MATCH", "true")
     }
@@ -113,6 +114,6 @@ dependencies {
     // Android Auto Car App Library (CarConnection + CarAppService)
     implementation("androidx.car.app:app:1.4.0")
 
-    // Coroutines pentru orchestrare BLE + Android Auto
+    // Coroutines pentru orchestrare BLE ANCS + Android Auto
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

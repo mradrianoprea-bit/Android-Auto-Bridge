@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_VERSION="1.0.0"
+APP_VERSION="1.1.0"
 KEYSTORE_PATH="app/release-keystore.jks"
 KEY_ALIAS="autobridge-release"
 KEYSTORE_PASS="${KEYSTORE_PASSWORD:-AutoBridge2026!}"

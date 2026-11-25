@@ -1,37 +1,27 @@
-# AutoBridge AA (v1.0.0)
+# AutoBridge AA (v1.1.0)
 
-Aplicație Android Kotlin care detectează conectarea telefonului Android la **Android Auto** (`CarConnection.CONNECTION_TYPE_PROJECTION`), verifică proximitatea telefonului **Apple iPhone** (`iPhone 15 Pro — Adrian`, prag `-72 dBm`) prin Bluetooth LE și preia apelurile asociate numărului **+40 722 450 890** direct pe ecranul și sistemul audio al mașinii.
+Aplicație Android Kotlin care detectează conectarea telefonului Android la **Android Auto** (`CarConnection.CONNECTION_TYPE_PROJECTION`), se conectează prin **Apple ANCS (BLE GATT)** la iPhone-ul asociat și transferă automat apelurile primite pe **+40 722 450 890** direct pe ecranul și sistemul audio al mașinii (Android Auto).
 
-## Configurație inclusă la generare
+## Cum funcționează (fără root, fără jailbreak, fără Shortcuts blocate de iOS)
 
-- **Număr iPhone (sursă apeluri):** `+40 722 450 890`
-- **Număr Android (Android Auto):** `+40 744 112 300`
-- **Dispozitiv Apple monitorizat:** `iPhone 15 Pro — Adrian`
-- **Prag proximitate BLE RSSI:** `-72 dBm`
-- **ID pachet Android:** `ro.autobridge.applecall`
-- **Alias certificat semnare:** `autobridge-release`
+1. **Detectare apel în timp real pe iPhone (Apple ANCS):** telefonul Android se conectează nativ la serviciul Apple ANCS (`7905F431-B5CE-4E99-A40F-4B1E122D00D0`) al iPhone-ului asociat Bluetooth și măsoară proximitatea RSSI (`-72 dBm`).
+2. **Transfer instant pe Android Auto:** doar atunci când telefonul Android este conectat la Android Auto și iPhone-ul este în habitaclu, la sosirea unui apel pe iPhone, Android trimite automat comanda ANCS *Decline (Ocupat)*.
+3. **Voce 100% nativă pe sistemul mașinii:** deoarece pe iPhone este activată o singură dată redirecționarea la ocupat (`*67*+40744112300#`), operatorul mobil transferă instant apelul (cu numărul apelantului și voce HD) pe telefonul Android conectat la Android Auto!
+4. **Când ieși din mașină (Android Auto deconectat):** aplicația Android nu mai trimite comanda ANCS, deci apelurile sună din nou normal pe iPhone.
 
-## 1. Compilare și semnare APK (Local, o singură comandă)
+## Configurare pe iPhone (o singură dată, 1 minut)
 
-Cerințe: JDK 17, Gradle 8.10+ și Android SDK (API 35 + Build Tools).
+1. Asociază prin **Bluetooth** iPhone-ul cu telefonul Android, apoi intră pe iPhone în **Setări → Bluetooth → (i) lângă telefonul Android** și activează **Partajare notificări sistem (Share System Notifications)**.
+2. Deschide aplicația **AutoBridge AA** pe Android și selectează iPhone-ul din lista de dispozitive Bluetooth asociate.
+3. Pe iPhone, din aplicația **Telefon** (tastatură), apelează o singură dată codul GSM:
+   `*67*+40744112300#`
+   *(Pentru a dezactiva oricând redirecționarea la ocupat, apelează `#67#`.)*
+
+## Compilare și semnare APK (Local)
 
 ```bash
 chmod +x build-signed-apk.sh
 ./build-signed-apk.sh
 ```
 
-APK-ul final semnat (V1/V2/V3/V4) și verificat cu `apksigner verify` va fi generat în:
-`dist/AutoBridgeAA-v1.0.0-signed.apk`
-
-## 2. Compilare automată în Cloud (fără Android Studio)
-
-1. Creează un repository GitHub privat și încarcă **conținutul** acestui folder (astfel încât `.github/workflows/build-signed-apk.yml` să fie în rădăcina repository-ului).
-2. Accesează fila **Actions** → **Compile & Sign AutoBridge AA APK** → **Run workflow**.
-3. Descarcă fișierul `AutoBridgeAA-v1.0.0-signed.apk` din secțiunea **Artifacts**.
-
-## 3. Configurare automatizare pe iPhone (Apple Shortcuts)
-
-Deoarece iOS nu permite unui telefon Android extern să preia direct canalul celular fără consimțământul iPhone-ului, configurează pe iPhone două automatizări simple în aplicația **Shortcuts (Scurtături)**:
-
-1. **La conectarea Bluetooth a mașinii / a telefonului Android** → Acțiunea **Call (Apelează)** `*21*+40744112300#` (activează redirecționarea apelurilor de pe `+40 722 450 890` către `+40 744 112 300`).
-2. **La deconectarea Bluetooth a mașinii** → Acțiunea **Call (Apelează)** `##21#` (dezactivează redirecționarea automată).
+APK-ul final semnat (V1/V2/V3/V4) este generat în `dist/AutoBridgeAA-v1.1.0-signed.apk`.

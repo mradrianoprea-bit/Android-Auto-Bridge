@@ -42,5 +42,5 @@ jobs:
       - name: Încarcă APK semnat ca Artifact descărcabil
         uses: actions/upload-artifact@v4
         with:
-          name: AutoBridgeAA-v1.0.0-signed-apk
+          name: AutoBridgeAA-v1.1.0-signed-apk
           path: android/dist/*.apk

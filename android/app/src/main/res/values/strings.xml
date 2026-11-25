@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">AutoBridge AA</string>
     <string name="channel_bridge_name">Serviciu Android Auto Call Bridge</string>
-    <string name="channel_bridge_desc">Monitorizează conectarea la Android Auto și proximitatea iPhone-ului setat.</string>
+    <string name="channel_bridge_desc">Monitorizează conectarea la Android Auto și apelurile iPhone prin Apple ANCS.</string>
 </resources>

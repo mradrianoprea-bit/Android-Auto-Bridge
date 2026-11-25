@@ -1,7 +1,7 @@
 import { BridgeConfig, ProjectFile } from '../types/bridge';
 
 export function sanitizeVersionTag(versionName: string): string {
-  return versionName.trim().replace(/[^a-zA-Z0-9._-]/g, '') || '1.0.0';
+  return versionName.trim().replace(/[^a-zA-Z0-9._-]/g, '') || '1.1.0';
 }
 
 function sanitizePackageName(appId: string): string {
@@ -63,13 +63,14 @@ export function generateAndroidProjectFiles(config: BridgeConfig): ProjectFile[]
   const pkg = sanitizePackageName(config.applicationId);
   const pkgPath = sanitizePackagePath(config.applicationId);
   const versionTag = sanitizeVersionTag(config.versionName);
-  const safeVersionCode = Math.max(1, Math.floor(Number(config.versionCode) || 1));
+  const safeVersionCode = Math.max(1, Math.floor(Number(config.versionCode) || 2));
   const rawAppleNum = config.applePhoneNumber.trim();
   const appleNum = escapeKotlinString(rawAppleNum);
   const appleNumClean = normalizePhone(config.applePhoneNumber);
   const rawAndroidNum = config.androidPhoneNumber.trim();
   const androidNumClean = normalizePhone(config.androidPhoneNumber);
   const rawAppleDevice = config.appleDeviceName.trim();
+  const rawAppleAddress = (config.appleDeviceAddress || '').trim().toUpperCase();
   const rawAppName = config.appDisplayName.trim() || 'AutoBridge AA';
   const appNameKotlin = escapeKotlinString(rawAppName);
   const appNameXml = escapeXmlString(rawAppName);
@@ -206,6 +207,7 @@ android {
         buildConfigField("String", "DEFAULT_APPLE_NUMBER", "${escapeBuildConfigString(rawAppleNum)}")
         buildConfigField("String", "DEFAULT_ANDROID_NUMBER", "${escapeBuildConfigString(rawAndroidNum)}")
         buildConfigField("String", "DEFAULT_APPLE_DEVICE_NAME", "${escapeBuildConfigString(rawAppleDevice)}")
+        buildConfigField("String", "DEFAULT_APPLE_DEVICE_ADDRESS", "${escapeBuildConfigString(rawAppleAddress)}")
         buildConfigField("int", "DEFAULT_RSSI_THRESHOLD", "${config.rssiThresholdDbm}")
         buildConfigField("String", "DEFAULT_BRIDGE_MODE", "${escapeBuildConfigString(config.bridgeMode)}")
         buildConfigField("boolean", "DEFAULT_AUTO_ANSWER", "${config.autoAnswerEnabled}")
@@ -292,7 +294,7 @@ dependencies {
     // Android Auto Car App Library (CarConnection + CarAppService)
     implementation("androidx.car.app:app:1.4.0")
 
-    // Coroutines pentru orchestrare BLE + Android Auto
+    // Coroutines pentru orchestrare BLE ANCS + Android Auto
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }
 `,
@@ -301,13 +303,14 @@ dependencies {
       path: 'app/proguard-rules.pro',
       language: 'properties',
       category: 'Gradle & Build',
-      description: 'Reguli R8/ProGuard pentru păstrarea serviciilor Android Auto, Telecom și a adnotărilor.',
+      description: 'Reguli R8/ProGuard pentru păstrarea serviciilor Android Auto, ANCS și Telecom.',
       content: `-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 -keep class androidx.car.app.** { *; }
 -keep class * extends androidx.car.app.CarAppService { *; }
 -keep class ${pkg}.car.** { *; }
 -keep class ${pkg}.telecom.** { *; }
 -keep class ${pkg}.service.** { *; }
+-keep class ${pkg}.bluetooth.** { *; }
 -dontwarn androidx.car.app.**
 `,
     },
@@ -315,12 +318,12 @@ dependencies {
       path: 'app/src/main/AndroidManifest.xml',
       language: 'xml',
       category: 'Manifest & Resurse',
-      description: 'Permisiuni Bluetooth LE (API 29–35), Telecom, Foreground Service și declararea Android Auto CarAppService.',
+      description: 'Permisiuni Bluetooth LE ANCS (API 29–35), Telecom, auto-pornire la conectarea mașinii și Android Auto CarAppService.',
       content: `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Bluetooth & BLE proximitate iPhone (Android 10-11 necesită ACCESS_FINE_LOCATION pentru scanare BLE) -->
+    <!-- Bluetooth & BLE ANCS proximitate iPhone -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
@@ -338,10 +341,11 @@ dependencies {
     <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
-    <!-- Serviciu persistent în fundal & notificări -->
+    <!-- Serviciu persistent în fundal, auto-pornire & notificări -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 
@@ -370,13 +374,24 @@ dependencies {
             </intent-filter>
         </activity>
 
-        <!-- Serviciul principal de monitorizare Android Auto + proximitate Apple BLE -->
+        <!-- Pornește automat serviciul la conectarea Bluetooth/Android Auto sau repornire -->
+        <receiver
+            android:name=".service.CarConnectionReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+                <action android:name="androidx.car.app.connection.action.CAR_CONNECTION_UPDATED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Serviciul principal de monitorizare Android Auto + Apple ANCS + redirecționare automată -->
         <service
             android:name=".service.CallBridgeForegroundService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 
-        <!-- Serviciul Android Telecom pentru rutarea apelurilor preluate către sistemul audio al mașinii -->
+        <!-- Serviciul Android Telecom pentru afișarea apelurilor ANCS pe Android Auto -->
         <service
             android:name=".telecom.BridgeConnectionService"
             android:exported="true"
@@ -439,7 +454,7 @@ dependencies {
 <resources>
     <string name="app_name">${appNameXml}</string>
     <string name="channel_bridge_name">Serviciu Android Auto Call Bridge</string>
-    <string name="channel_bridge_desc">Monitorizează conectarea la Android Auto și proximitatea iPhone-ului setat.</string>
+    <string name="channel_bridge_desc">Monitorizează conectarea la Android Auto și apelurile iPhone prin Apple ANCS.</string>
 </resources>
 `,
     },
@@ -447,7 +462,7 @@ dependencies {
       path: `app/src/main/java/${pkgPath}/data/BridgePreferences.kt`,
       language: 'kotlin',
       category: 'Cod Kotlin',
-      description: 'Stocarea persistentă a numărului Apple, pragului RSSI și preferințelor de preluare.',
+      description: 'Stocarea persistentă a numărului Apple, adresei Bluetooth a iPhone-ului, pragului RSSI și modului ANCS.',
       content: `package ${pkg}.data
 
 import android.content.Context
@@ -457,6 +472,7 @@ data class BridgeSettings(
     val applePhoneNumber: String = BuildConfig.DEFAULT_APPLE_NUMBER,
     val androidPhoneNumber: String = BuildConfig.DEFAULT_ANDROID_NUMBER,
     val appleDeviceName: String = BuildConfig.DEFAULT_APPLE_DEVICE_NAME,
+    val appleDeviceAddress: String = BuildConfig.DEFAULT_APPLE_DEVICE_ADDRESS,
     val rssiThresholdDbm: Int = BuildConfig.DEFAULT_RSSI_THRESHOLD,
     val bridgeMode: String = BuildConfig.DEFAULT_BRIDGE_MODE,
     val autoAnswerEnabled: Boolean = BuildConfig.DEFAULT_AUTO_ANSWER,
@@ -475,6 +491,8 @@ class BridgePreferences(context: Context) {
             ?: BuildConfig.DEFAULT_ANDROID_NUMBER,
         appleDeviceName = prefs.getString("apple_device", BuildConfig.DEFAULT_APPLE_DEVICE_NAME)
             ?: BuildConfig.DEFAULT_APPLE_DEVICE_NAME,
+        appleDeviceAddress = prefs.getString("apple_address", BuildConfig.DEFAULT_APPLE_DEVICE_ADDRESS)
+            ?: BuildConfig.DEFAULT_APPLE_DEVICE_ADDRESS,
         rssiThresholdDbm = prefs.getInt("rssi_threshold", BuildConfig.DEFAULT_RSSI_THRESHOLD),
         bridgeMode = prefs.getString("bridge_mode", BuildConfig.DEFAULT_BRIDGE_MODE)
             ?: BuildConfig.DEFAULT_BRIDGE_MODE,
@@ -489,6 +507,7 @@ class BridgePreferences(context: Context) {
             .putString("apple_phone", settings.applePhoneNumber.trim())
             .putString("android_phone", settings.androidPhoneNumber.trim())
             .putString("apple_device", settings.appleDeviceName.trim())
+            .putString("apple_address", settings.appleDeviceAddress.trim().uppercase())
             .putInt("rssi_threshold", settings.rssiThresholdDbm)
             .putString("bridge_mode", settings.bridgeMode)
             .putBoolean("auto_answer", settings.autoAnswerEnabled)
@@ -546,10 +565,423 @@ class AndroidAutoMonitor(context: Context) {
 `,
     },
     {
+      path: `app/src/main/java/${pkgPath}/bluetooth/AppleAncsClient.kt`,
+      language: 'kotlin',
+      category: 'Cod Kotlin',
+      description: 'Client real Apple ANCS (BLE GATT) care se conectează la iPhone-ul asociat, citește RSSI live, detectează apelurile primite și trimite acțiunea Decline/Accept.',
+      content: `package ${pkg}.bluetooth
+
+import android.Manifest
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCallback
+import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.util.UUID
+
+enum class AncsConnectionStatus {
+    UNPAIRED,
+    CONNECTING,
+    CONNECTED_NO_ANCS,
+    READY
+}
+
+data class AncsState(
+    val status: AncsConnectionStatus = AncsConnectionStatus.UNPAIRED,
+    val deviceName: String = "",
+    val deviceAddress: String = "",
+    val rssiDbm: Int = -120,
+    val inCabinRange: Boolean = false,
+    val detailMessage: String = "Asociază iPhone-ul prin Bluetooth și selectează-l din listă."
+)
+
+data class AncsIncomingCallEvent(
+    val notificationUidBytes: ByteArray,
+    val notificationUidInt: Int,
+    val supportsNegativeAction: Boolean,
+    val supportsPositiveAction: Boolean,
+    val isRemoved: Boolean = false
+)
+
+class AppleAncsClient(
+    private val context: Context,
+    private val targetDeviceAddressProvider: () -> String,
+    private val targetDeviceNameProvider: () -> String,
+    private val rssiThresholdProvider: () -> Int
+) {
+    companion object {
+        // Specificația oficială Apple Notification Center Service (ANCS)
+        val ANCS_SERVICE_UUID: UUID = UUID.fromString("7905F431-B5CE-4E99-A40F-4B1E122D00D0")
+        val NOTIFICATION_SOURCE_UUID: UUID = UUID.fromString("9FBF120D-6301-42D9-8C58-25E699A21DBD")
+        val CONTROL_POINT_UUID: UUID = UUID.fromString("69D1D8F3-45E1-49A8-9821-9BBDFDAAD9D9")
+        val DATA_SOURCE_UUID: UUID = UUID.fromString("22EAC6E9-24D6-4BB5-BE44-B36ACE7C7BFB")
+        val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
+
+        private const val EVENT_ID_NOTIFICATION_ADDED = 0
+        private const val EVENT_ID_NOTIFICATION_REMOVED = 2
+        private const val CATEGORY_ID_INCOMING_CALL = 1
+        private const val EVENT_FLAG_POSITIVE_ACTION = 0x08
+        private const val EVENT_FLAG_NEGATIVE_ACTION = 0x10
+
+        private const val COMMAND_PERFORM_NOTIFICATION_ACTION: Byte = 0x02
+        const val ACTION_ID_POSITIVE_ACCEPT: Byte = 0x00
+        const val ACTION_ID_NEGATIVE_DECLINE: Byte = 0x01
+    }
+
+    private val _state = MutableStateFlow(AncsState())
+    val state: StateFlow<AncsState> = _state.asStateFlow()
+
+    private val _incomingCalls = MutableSharedFlow<AncsIncomingCallEvent>(extraBufferCapacity = 8)
+    val incomingCalls: SharedFlow<AncsIncomingCallEvent> = _incomingCalls.asSharedFlow()
+
+    private var gatt: BluetoothGatt? = null
+    private var controlPointChar: BluetoothGattCharacteristic? = null
+    private var dataSourceChar: BluetoothGattCharacteristic? = null
+    private val rssiWindow = ArrayDeque<Int>(4)
+    private var lastConnectedAddress: String = ""
+
+    fun hasConnectPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
+                PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun listBondedDevices(): List<Pair<String, String>> {
+        if (!hasConnectPermission()) return emptyList()
+        val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return emptyList()
+        return btManager.adapter?.bondedDevices
+            ?.map { (it.name ?: "Dispozitiv Bluetooth") to it.address }
+            ?.sortedByDescending { it.first.contains("iPhone", ignoreCase = true) }
+            ?: emptyList()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun findTargetBondedDevice(): BluetoothDevice? {
+        if (!hasConnectPermission()) return null
+        val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return null
+        val bonded = btManager.adapter?.bondedDevices ?: return null
+        val wantedAddress = targetDeviceAddressProvider().trim().uppercase()
+        val wantedName = targetDeviceNameProvider().trim()
+
+        if (wantedAddress.isNotEmpty()) {
+            bonded.firstOrNull { it.address.equals(wantedAddress, ignoreCase = true) }?.let { return it }
+        }
+        if (wantedName.isNotEmpty()) {
+            bonded.firstOrNull { (it.name ?: "").equals(wantedName, ignoreCase = true) }?.let { return it }
+            bonded.firstOrNull { (it.name ?: "").contains(wantedName, ignoreCase = true) }?.let { return it }
+        }
+        return bonded.firstOrNull { (it.name ?: "").contains("iPhone", ignoreCase = true) }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun connectIfNeeded(forceReconnect: Boolean = false) {
+        if (!hasConnectPermission()) {
+            _state.value = AncsState(
+                status = AncsConnectionStatus.UNPAIRED,
+                detailMessage = "Lipsește permisiunea BLUETOOTH_CONNECT."
+            )
+            return
+        }
+
+        val target = findTargetBondedDevice()
+        if (target == null) {
+            disconnect()
+            _state.value = AncsState(
+                status = AncsConnectionStatus.UNPAIRED,
+                detailMessage = "iPhone-ul nu este asociat Bluetooth cu acest telefon Android."
+            )
+            return
+        }
+
+        if (!forceReconnect && gatt != null && lastConnectedAddress.equals(target.address, ignoreCase = true)) {
+            return
+        }
+
+        disconnect()
+        lastConnectedAddress = target.address
+        val label = target.name ?: targetDeviceNameProvider().ifBlank { "Apple iPhone" }
+        _state.value = AncsState(
+            status = AncsConnectionStatus.CONNECTING,
+            deviceName = label,
+            deviceAddress = target.address,
+            detailMessage = "Se conectează la Apple ANCS pe $label..."
+        )
+
+        try {
+            gatt = target.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        } catch (_: SecurityException) {
+            _state.value = AncsState(
+                status = AncsConnectionStatus.UNPAIRED,
+                detailMessage = "Eroare permisiuni Bluetooth la conectarea ANCS."
+            )
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun pollRssi() {
+        if (!hasConnectPermission()) return
+        try {
+            gatt?.readRemoteRssi()
+        } catch (_: SecurityException) {
+            // Ignoră dacă permisiunea a fost revocată
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun performCallAction(uidBytes: ByteArray, accept: Boolean): Boolean {
+        if (!hasConnectPermission() || uidBytes.size != 4) return false
+        val currentGatt = gatt ?: return false
+        val cp = controlPointChar ?: return false
+
+        val actionByte = if (accept) ACTION_ID_POSITIVE_ACCEPT else ACTION_ID_NEGATIVE_DECLINE
+        val payload = byteArrayOf(
+            COMMAND_PERFORM_NOTIFICATION_ACTION,
+            uidBytes[0],
+            uidBytes[1],
+            uidBytes[2],
+            uidBytes[3],
+            actionByte
+        )
+
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                currentGatt.writeCharacteristic(
+                    cp,
+                    payload,
+                    BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                ) == android.bluetooth.BluetoothStatusCodes.SUCCESS
+            } else {
+                @Suppress("DEPRECATION")
+                cp.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                @Suppress("DEPRECATION")
+                cp.value = payload
+                @Suppress("DEPRECATION")
+                currentGatt.writeCharacteristic(cp)
+            }
+        } catch (_: SecurityException) {
+            false
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun disconnect() {
+        try {
+            gatt?.disconnect()
+            gatt?.close()
+        } catch (_: SecurityException) {
+            // Ignoră
+        }
+        gatt = null
+        controlPointChar = null
+        dataSourceChar = null
+        rssiWindow.clear()
+        lastConnectedAddress = ""
+    }
+
+    private val gattCallback = object : BluetoothGattCallback() {
+
+        @SuppressLint("MissingPermission")
+        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                val label = gatt.device?.name ?: _state.value.deviceName.ifBlank { "iPhone" }
+                _state.value = _state.value.copy(
+                    status = AncsConnectionStatus.CONNECTING,
+                    deviceName = label,
+                    deviceAddress = gatt.device?.address ?: "",
+                    detailMessage = "Conectat BLE la $label. Se descoperă serviciul Apple ANCS..."
+                )
+                try {
+                    gatt.discoverServices()
+                    gatt.readRemoteRssi()
+                } catch (_: SecurityException) {
+                    // Ignoră
+                }
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                controlPointChar = null
+                dataSourceChar = null
+                rssiWindow.clear()
+                _state.value = _state.value.copy(
+                    status = AncsConnectionStatus.CONNECTING,
+                    rssiDbm = -120,
+                    inCabinRange = false,
+                    detailMessage = "iPhone deconectat sau ieșit din rază. Se așteaptă reconectare automată..."
+                )
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+            if (status != BluetoothGatt.GATT_SUCCESS) return
+            val ancsService = gatt.getService(ANCS_SERVICE_UUID)
+            if (ancsService == null) {
+                _state.value = _state.value.copy(
+                    status = AncsConnectionStatus.CONNECTED_NO_ANCS,
+                    detailMessage = "iPhone conectat, dar ANCS lipsește. Activează pe iPhone: Setări → Bluetooth → (i) → Partajare notificări sistem."
+                )
+                return
+            }
+
+            val notifSource = ancsService.getCharacteristic(NOTIFICATION_SOURCE_UUID)
+            controlPointChar = ancsService.getCharacteristic(CONTROL_POINT_UUID)
+            dataSourceChar = ancsService.getCharacteristic(DATA_SOURCE_UUID)
+
+            if (notifSource == null || controlPointChar == null) {
+                _state.value = _state.value.copy(
+                    status = AncsConnectionStatus.CONNECTED_NO_ANCS,
+                    detailMessage = "Caracteristicile ANCS nu sunt disponibile. Reasociază iPhone-ul."
+                )
+                return
+            }
+
+            enableNotifications(gatt, notifSource)
+        }
+
+        @SuppressLint("MissingPermission")
+        override fun onDescriptorWrite(
+            gatt: BluetoothGatt,
+            descriptor: BluetoothGattDescriptor,
+            status: Int
+        ) {
+            if (status != BluetoothGatt.GATT_SUCCESS) return
+            val charUuid = descriptor.characteristic.uuid
+            if (charUuid == NOTIFICATION_SOURCE_UUID) {
+                val ds = dataSourceChar
+                if (ds != null) {
+                    enableNotifications(gatt, ds)
+                } else {
+                    markAncsReady()
+                }
+            } else if (charUuid == DATA_SOURCE_UUID) {
+                markAncsReady()
+            }
+        }
+
+        private fun markAncsReady() {
+            val currentRssi = _state.value.rssiDbm
+            val effectiveInRange = currentRssi == -120 || currentRssi >= rssiThresholdProvider()
+            _state.value = _state.value.copy(
+                status = AncsConnectionStatus.READY,
+                inCabinRange = effectiveInRange,
+                detailMessage = "Apple ANCS activ pe \${_state.value.deviceName}. Monitorizează apelurile primite."
+            )
+            pollRssi()
+        }
+
+        override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
+            if (status != BluetoothGatt.GATT_SUCCESS) return
+            if (rssiWindow.size >= 4) rssiWindow.removeFirst()
+            rssiWindow.addLast(rssi)
+            val smoothed = rssiWindow.average().toInt()
+            val inRange = smoothed >= rssiThresholdProvider()
+            _state.value = _state.value.copy(
+                rssiDbm = smoothed,
+                inCabinRange = inRange
+            )
+        }
+
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray
+        ) {
+            handleCharacteristicUpdate(characteristic.uuid, value)
+        }
+
+        @Deprecated("Deprecated in API 33")
+        @Suppress("DEPRECATION")
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic
+        ) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                val bytes = characteristic.value ?: return
+                handleCharacteristicUpdate(characteristic.uuid, bytes)
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun enableNotifications(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+        try {
+            gatt.setCharacteristicNotification(characteristic, true)
+            val cccd = characteristic.getDescriptor(CCCD_UUID) ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            } else {
+                @Suppress("DEPRECATION")
+                cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                @Suppress("DEPRECATION")
+                gatt.writeDescriptor(cccd)
+            }
+        } catch (_: SecurityException) {
+            // Ignoră
+        }
+    }
+
+    private fun handleCharacteristicUpdate(uuid: UUID, value: ByteArray) {
+        if (uuid != NOTIFICATION_SOURCE_UUID || value.size < 8) return
+        val eventId = value[0].toInt() and 0xFF
+        val eventFlags = value[1].toInt() and 0xFF
+        val categoryId = value[2].toInt() and 0xFF
+
+        if (categoryId != CATEGORY_ID_INCOMING_CALL) return
+
+        val uidBytes = value.copyOfRange(4, 8)
+        val uidInt = (uidBytes[0].toInt() and 0xFF) or
+            ((uidBytes[1].toInt() and 0xFF) shl 8) or
+            ((uidBytes[2].toInt() and 0xFF) shl 16) or
+            ((uidBytes[3].toInt() and 0xFF) shl 24)
+
+        when (eventId) {
+            EVENT_ID_NOTIFICATION_ADDED -> {
+                _incomingCalls.tryEmit(
+                    AncsIncomingCallEvent(
+                        notificationUidBytes = uidBytes,
+                        notificationUidInt = uidInt,
+                        supportsNegativeAction = (eventFlags and EVENT_FLAG_NEGATIVE_ACTION) != 0,
+                        supportsPositiveAction = (eventFlags and EVENT_FLAG_POSITIVE_ACTION) != 0,
+                        isRemoved = false
+                    )
+                )
+            }
+            EVENT_ID_NOTIFICATION_REMOVED -> {
+                _incomingCalls.tryEmit(
+                    AncsIncomingCallEvent(
+                        notificationUidBytes = uidBytes,
+                        notificationUidInt = uidInt,
+                        supportsNegativeAction = false,
+                        supportsPositiveAction = false,
+                        isRemoved = true
+                    )
+                )
+            }
+        }
+    }
+}
+`,
+    },
+    {
       path: `app/src/main/java/${pkgPath}/bluetooth/AppleProximityScanner.kt`,
       language: 'kotlin',
       category: 'Cod Kotlin',
-      description: 'Scanează pachetele BLE Apple Continuity (Company ID 0x004C) cu verificare permisiuni API 29–35 și medie mobilă RSSI.',
+      description: 'Scanner auxiliar BLE Apple (0x004C) care detectează prezența iPhone-ului și declanșează reconectarea ANCS.',
       content: `package ${pkg}.bluetooth
 
 import android.Manifest
@@ -581,7 +1013,6 @@ class AppleProximityScanner(
     private val rssiThresholdProvider: () -> Int
 ) {
     companion object {
-        // Apple Inc. Bluetooth SIG Company Identifier (0x004C)
         const val APPLE_MANUFACTURER_ID = 0x004C
         private const val STALE_TIMEOUT_MS = 12_000L
     }
@@ -648,7 +1079,7 @@ class AppleProximityScanner(
             .build()
 
         val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
             .build()
 
         try {
@@ -666,7 +1097,7 @@ class AppleProximityScanner(
         try {
             btManager.adapter?.bluetoothLeScanner?.stopScan(scanCallback)
         } catch (_: SecurityException) {
-            // Ignoră dacă permisiunea a fost revocată
+            // Ignoră
         }
         isScanning = false
         rssiWindow.clear()
@@ -686,12 +1117,13 @@ class AppleProximityScanner(
       path: `app/src/main/java/${pkgPath}/telecom/BridgeConnectionService.kt`,
       language: 'kotlin',
       category: 'Cod Kotlin',
-      description: 'Integrează apelurile preluate de la numărul Apple configurat cu Android Telecom și sistemul audio Android Auto.',
+      description: 'Integrează apelurile semnalate de pe iPhone cu Android Telecom și sistemul audio Android Auto.',
       content: `package ${pkg}.telecom
 
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.os.Bundle
 import android.telecom.CallAudioState
 import android.telecom.Connection
 import android.telecom.ConnectionRequest
@@ -706,7 +1138,11 @@ class BridgeConnectionService : ConnectionService() {
     companion object {
         const val ACCOUNT_ID = "autobridge_apple_call_account"
         const val EXTRA_APPLE_SOURCE_NUMBER = "extra_apple_source_number"
+        const val EXTRA_ANCS_UID_BYTES = "extra_ancs_uid_bytes"
         private val NON_PHONE_CHARS = Regex("""[^\\d+]""")
+
+        @Volatile
+        var onCallActionCallback: ((uidBytes: ByteArray, accept: Boolean) -> Unit)? = null
 
         fun phoneAccountHandle(context: Context): PhoneAccountHandle {
             return PhoneAccountHandle(
@@ -728,6 +1164,29 @@ class BridgeConnectionService : ConnectionService() {
             }
         }
 
+        fun presentIncomingAppleCall(
+            context: Context,
+            appleNumber: String,
+            ancsUidBytes: ByteArray?
+        ) {
+            val telecom = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager ?: return
+            val extras = Bundle().apply {
+                putString(EXTRA_APPLE_SOURCE_NUMBER, appleNumber)
+                if (ancsUidBytes != null) {
+                    putByteArray(EXTRA_ANCS_UID_BYTES, ancsUidBytes)
+                }
+                putParcelable(
+                    TelecomManager.EXTRA_INCOMING_CALL_ADDRESS,
+                    Uri.fromParts(PhoneAccount.SCHEME_TEL, normalizePhoneNumber(appleNumber).ifBlank { "${appleNumClean}" }, null)
+                )
+            }
+            try {
+                telecom.addNewIncomingCall(phoneAccountHandle(context), extras)
+            } catch (_: SecurityException) {
+                // Necesită MANAGE_OWN_CALLS
+            }
+        }
+
         fun normalizePhoneNumber(raw: String): String = raw.replace(NON_PHONE_CHARS, "")
 
         fun matchesConfiguredAppleNumber(incoming: String, configured: String): Boolean {
@@ -744,8 +1203,9 @@ class BridgeConnectionService : ConnectionService() {
     ): Connection {
         val callerUri = request.address ?: Uri.fromParts(PhoneAccount.SCHEME_TEL, "${appleNumClean}", null)
         val appleSource = request.extras?.getString(EXTRA_APPLE_SOURCE_NUMBER) ?: "${appleNum}"
+        val uidBytes = request.extras?.getByteArray(EXTRA_ANCS_UID_BYTES)
 
-        return BridgeCallConnection(appleSource).apply {
+        return BridgeCallConnection(uidBytes).apply {
             setAddress(callerUri, TelecomManager.PRESENTATION_ALLOWED)
             setCallerDisplayName("iPhone • $appleSource", TelecomManager.PRESENTATION_ALLOWED)
             connectionProperties = Connection.PROPERTY_SELF_MANAGED
@@ -755,21 +1215,24 @@ class BridgeConnectionService : ConnectionService() {
     }
 
     class BridgeCallConnection(
-        private val sourceAppleNumber: String
+        private val ancsUidBytes: ByteArray?
     ) : Connection() {
 
         @Suppress("DEPRECATION")
         override fun onAnswer() {
             setActive()
             setAudioRoute(CallAudioState.ROUTE_BLUETOOTH)
+            ancsUidBytes?.let { onCallActionCallback?.invoke(it, true) }
         }
 
         override fun onReject() {
+            ancsUidBytes?.let { onCallActionCallback?.invoke(it, false) }
             setDisconnected(DisconnectCause(DisconnectCause.REJECTED))
             destroy()
         }
 
         override fun onDisconnect() {
+            ancsUidBytes?.let { onCallActionCallback?.invoke(it, false) }
             setDisconnected(DisconnectCause(DisconnectCause.LOCAL))
             destroy()
         }
@@ -786,30 +1249,167 @@ class BridgeConnectionService : ConnectionService() {
 `,
     },
     {
-      path: `app/src/main/java/${pkgPath}/service/CallBridgeForegroundService.kt`,
+      path: `app/src/main/java/${pkgPath}/telecom/IncomingCallMonitor.kt`,
       language: 'kotlin',
       category: 'Cod Kotlin',
-      description: 'Orchestrează Android Auto + proximitatea Apple BLE, semnalizarea GATT iOS și compatibilitatea Foreground Service API 34/35.',
-      content: `package ${pkg}.service
+      description: 'Monitorizează apelurile celulare redirecționate către telefonul Android și poate răspunde automat hands-free pe Android Auto.',
+      content: `package ${pkg}.telecom
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.telecom.TelecomManager
+import android.telephony.PhoneStateListener
+import android.telephony.TelephonyCallback
+import android.telephony.TelephonyManager
+import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
+
+class IncomingCallMonitor(
+    private val context: Context,
+    private val shouldAutoAnswerProvider: () -> Pair<Boolean, Int>,
+    private val onRingingDetected: () -> Unit
+) {
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+    private var api31Callback: TelephonyCallback? = null
+
+    @Suppress("DEPRECATION")
+    private var legacyListener: PhoneStateListener? = null
+    private var pendingAutoAnswer: Runnable? = null
+
+    fun start() {
+        val tm = telephonyManager ?: return
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            startApi31(tm)
+        } else {
+            startLegacy(tm)
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.S)
+    private fun startApi31(tm: TelephonyManager) {
+        val cb = object : TelephonyCallback(), TelephonyCallback.CallStateListener {
+            override fun onCallStateChanged(state: Int) {
+                handleCallState(state)
+            }
+        }
+        api31Callback = cb
+        try {
+            tm.registerTelephonyCallback(context.mainExecutor, cb)
+        } catch (_: SecurityException) {
+            // Lipsă READ_PHONE_STATE
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun startLegacy(tm: TelephonyManager) {
+        val listener = object : PhoneStateListener() {
+            override fun onCallStateChanged(state: Int, phoneNumber: String?) {
+                handleCallState(state)
+            }
+        }
+        legacyListener = listener
+        try {
+            tm.listen(listener, PhoneStateListener.LISTEN_CALL_STATE)
+        } catch (_: SecurityException) {
+            // Lipsă READ_PHONE_STATE
+        }
+    }
+
+    private fun handleCallState(state: Int) {
+        pendingAutoAnswer?.let { mainHandler.removeCallbacks(it) }
+        pendingAutoAnswer = null
+
+        if (state == TelephonyManager.CALL_STATE_RINGING) {
+            onRingingDetected()
+            val (shouldAnswer, delaySec) = shouldAutoAnswerProvider()
+            if (shouldAnswer) {
+                val task = Runnable { acceptRingingCallSafely() }
+                pendingAutoAnswer = task
+                mainHandler.postDelayed(task, (delaySec.coerceIn(1, 8)) * 1000L)
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    @Suppress("DEPRECATION")
+    private fun acceptRingingCallSafely() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ANSWER_PHONE_CALLS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val telecom = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager ?: return
+        try {
+            telecom.acceptRingingCall()
+        } catch (_: SecurityException) {
+            // Permisiune revocată
+        }
+    }
+
+    fun stop() {
+        pendingAutoAnswer?.let { mainHandler.removeCallbacks(it) }
+        pendingAutoAnswer = null
+        val tm = telephonyManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            api31Callback?.let { tm.unregisterTelephonyCallback(it) }
+            api31Callback = null
+        } else {
+            @Suppress("DEPRECATION")
+            legacyListener?.let { tm.listen(it, PhoneStateListener.LISTEN_NONE) }
+            legacyListener = null
+        }
+    }
+}
+`,
+    },
+    {
+      path: `app/src/main/java/${pkgPath}/service/CarConnectionReceiver.kt`,
+      language: 'kotlin',
+      category: 'Cod Kotlin',
+      description: 'Pornește automat CallBridgeForegroundService când telefonul se conectează la Bluetooth-ul mașinii sau la Android Auto.',
+      content: `package ${pkg}.service
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+
+class CarConnectionReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        if (CallBridgeForegroundService.hasRequiredBluetoothPermissions(context)) {
+            CallBridgeForegroundService.start(context.applicationContext)
+        }
+    }
+}
+`,
+    },
+    {
+      path: `app/src/main/java/${pkgPath}/service/CallBridgeForegroundService.kt`,
+      language: 'kotlin',
+      category: 'Cod Kotlin',
+      description: 'Orchestrează Android Auto + Apple ANCS + redirecționare automată instant (*67*) + răspuns automat pe Android Auto.',
+      content: `package ${pkg}.service
+
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.bluetooth.BluetoothGattServer
-import android.bluetooth.BluetoothGattServerCallback
-import android.bluetooth.BluetoothGattService
-import android.bluetooth.BluetoothManager
-import android.bluetooth.le.AdvertiseCallback
-import android.bluetooth.le.AdvertiseData
-import android.bluetooth.le.AdvertiseSettings
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
-import android.os.ParcelUuid
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -822,20 +1422,26 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import ${pkg}.R
+import ${pkg}.bluetooth.AncsConnectionStatus
+import ${pkg}.bluetooth.AncsIncomingCallEvent
+import ${pkg}.bluetooth.AppleAncsClient
 import ${pkg}.bluetooth.AppleProximityScanner
 import ${pkg}.car.AndroidAutoMonitor
 import ${pkg}.car.CarProjectionState
 import ${pkg}.data.BridgePreferences
 import ${pkg}.telecom.BridgeConnectionService
-import java.util.UUID
+import ${pkg}.telecom.IncomingCallMonitor
 
 data class BridgeRuntimeState(
     val carState: CarProjectionState = CarProjectionState.DISCONNECTED,
-    val appleDetected: Boolean = false,
+    val ancsStatus: AncsConnectionStatus = AncsConnectionStatus.UNPAIRED,
+    val ancsDeviceName: String = "",
+    val ancsDetail: String = "Serviciul nu a pornit încă.",
     val appleInRange: Boolean = false,
     val rssiDbm: Int = -120,
     val bridgeActive: Boolean = false,
-    val targetAppleNumber: String = "${appleNum}"
+    val targetAppleNumber: String = "${appleNum}",
+    val lastEventMessage: String = "În așteptare conexiune Android Auto și iPhone (ANCS)."
 )
 
 class CallBridgeForegroundService : LifecycleService() {
@@ -843,8 +1449,7 @@ class CallBridgeForegroundService : LifecycleService() {
     companion object {
         private const val CHANNEL_ID = "autobridge_channel"
         private const val NOTIFICATION_ID = 4201
-        // UUID BLE semnalizare către automatizarea iOS Shortcuts / Apple Companion
-        val BRIDGE_TRIGGER_SERVICE_UUID: UUID = UUID.fromString("7E4A1000-4B1C-4A2A-9F01-AA0000002101")
+        const val ACTION_RECONNECT_ANCS = "${pkg}.ACTION_RECONNECT_ANCS"
 
         private val _runtimeState = MutableStateFlow(BridgeRuntimeState())
         val runtimeState: StateFlow<BridgeRuntimeState> = _runtimeState.asStateFlow()
@@ -874,13 +1479,38 @@ class CallBridgeForegroundService : LifecycleService() {
                 // Permisiunile connectedDevice nu au fost încă acordate
             }
         }
+
+        fun reconnectAncs(context: Context) {
+            if (!hasRequiredBluetoothPermissions(context)) return
+            val intent = Intent(context, CallBridgeForegroundService::class.java).apply {
+                action = ACTION_RECONNECT_ANCS
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (_: SecurityException) {
+                // Ignoră
+            }
+        }
     }
 
     private lateinit var preferences: BridgePreferences
     private lateinit var autoMonitor: AndroidAutoMonitor
+    private lateinit var ancsClient: AppleAncsClient
     private lateinit var proximityScanner: AppleProximityScanner
-    private var gattServer: BluetoothGattServer? = null
-    private var advertisingActive = false
+    private lateinit var incomingCallMonitor: IncomingCallMonitor
+    private var lastHandoverEpochMs: Long = 0L
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+        if (intent?.action == ACTION_RECONNECT_ANCS && ::ancsClient.isInitialized) {
+            ancsClient.connectIfNeeded(forceReconnect = true)
+        }
+        return START_STICKY
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -888,7 +1518,7 @@ class CallBridgeForegroundService : LifecycleService() {
         BridgeConnectionService.registerPhoneAccount(this)
         createNotificationChannel()
 
-        val initialNotification = buildNotification("Se monitorizează Android Auto...")
+        val initialNotification = buildNotification("Se monitorizează Android Auto și iPhone (ANCS)...")
         val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         } else {
@@ -902,105 +1532,142 @@ class CallBridgeForegroundService : LifecycleService() {
         }
 
         autoMonitor = AndroidAutoMonitor(this)
+        ancsClient = AppleAncsClient(
+            context = this,
+            targetDeviceAddressProvider = { preferences.load().appleDeviceAddress },
+            targetDeviceNameProvider = { preferences.load().appleDeviceName },
+            rssiThresholdProvider = { preferences.load().rssiThresholdDbm }
+        )
         proximityScanner = AppleProximityScanner(
             context = this,
             targetDeviceNameProvider = { preferences.load().appleDeviceName },
             rssiThresholdProvider = { preferences.load().rssiThresholdDbm }
         )
+        incomingCallMonitor = IncomingCallMonitor(
+            context = this,
+            shouldAutoAnswerProvider = {
+                val cfg = preferences.load()
+                val runtime = _runtimeState.value
+                val recentHandover = (System.currentTimeMillis() - lastHandoverEpochMs) <= 20_000L
+                val shouldAnswer = cfg.autoAnswerEnabled && (runtime.bridgeActive || recentHandover)
+                shouldAnswer to cfg.autoAnswerDelaySec
+            },
+            onRingingDetected = {
+                val recentHandover = (System.currentTimeMillis() - lastHandoverEpochMs) <= 20_000L
+                if (recentHandover) {
+                    setLastEvent("Apelul redirecționat de pe iPhone sună acum nativ pe Android Auto!")
+                }
+            }
+        )
+
+        BridgeConnectionService.onCallActionCallback = { uidBytes, accept ->
+            ancsClient.performCallAction(uidBytes, accept)
+        }
 
         autoMonitor.start()
+        ancsClient.connectIfNeeded(forceReconnect = true)
         proximityScanner.startScanning()
+        incomingCallMonitor.start()
 
+        // Verificare periodică RSSI și reconectare ANCS
         lifecycleScope.launch {
             while (true) {
                 proximityScanner.pruneStale()
-                delay(3_000L)
+                if (ancsClient.state.value.status == AncsConnectionStatus.READY) {
+                    ancsClient.pollRssi()
+                } else {
+                    ancsClient.connectIfNeeded(forceReconnect = false)
+                }
+                delay(4_000L)
             }
         }
 
+        // Ascultă apelurile primite în timp real pe iPhone prin Apple ANCS
         lifecycleScope.launch {
-            combine(autoMonitor.state, proximityScanner.snapshot) { car, apple ->
+            ancsClient.incomingCalls.collect { callEvent ->
+                handleAncsIncomingCall(callEvent)
+            }
+        }
+
+        // Combină starea Android Auto + ANCS + proximitate BLE
+        lifecycleScope.launch {
+            combine(autoMonitor.state, ancsClient.state, proximityScanner.snapshot) { car, ancs, ble ->
                 val cfg = preferences.load()
-                val shouldActivateBridge = (car != CarProjectionState.DISCONNECTED) && apple.inCabinRange
-                BridgeRuntimeState(
+                val effectiveRssi = if (ancs.rssiDbm > -120) ancs.rssiDbm else ble.rssiDbm
+                val ancsReady = ancs.status == AncsConnectionStatus.READY
+                val inRange = if (ancsReady) {
+                    ancs.inCabinRange || ble.inCabinRange
+                } else {
+                    ble.inCabinRange
+                }
+                val active = (car != CarProjectionState.DISCONNECTED) && ancsReady && inRange
+
+                _runtimeState.value.copy(
                     carState = car,
-                    appleDetected = apple.detected,
-                    appleInRange = apple.inCabinRange,
-                    rssiDbm = apple.rssiDbm,
-                    bridgeActive = shouldActivateBridge,
+                    ancsStatus = ancs.status,
+                    ancsDeviceName = ancs.deviceName.ifBlank { cfg.appleDeviceName },
+                    ancsDetail = ancs.detailMessage,
+                    appleInRange = inRange,
+                    rssiDbm = effectiveRssi,
+                    bridgeActive = active,
                     targetAppleNumber = cfg.applePhoneNumber
                 )
             }.collect { state ->
-                val previouslyActive = _runtimeState.value.bridgeActive
                 _runtimeState.value = state
-
-                if (state.bridgeActive && !previouslyActive) {
-                    activateIosBridgeSignal()
-                } else if (!state.bridgeActive && previouslyActive && preferences.load().autoRevertOnDisconnect) {
-                    deactivateIosBridgeSignal()
-                }
-
                 updateNotification(state)
             }
         }
     }
 
-    @SuppressLint("MissingPermission")
-    private fun activateIosBridgeSignal() {
-        // Anunță serviciul GATT BLE pentru ca iPhone-ul aflat în proximitate să activeze redirecționarea (*21*${androidNumClean}#)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
+    private fun handleAncsIncomingCall(event: AncsIncomingCallEvent) {
+        if (event.isRemoved) return
+
+        val cfg = preferences.load()
+        val state = _runtimeState.value
+
+        if (state.carState == CarProjectionState.DISCONNECTED) {
+            setLastEvent("Apel pe iPhone ignorat: telefonul Android nu este conectat la Android Auto.")
             return
         }
 
-        val btManager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return
-        val advertiser = btManager.adapter?.bluetoothLeAdvertiser ?: return
-        if (advertisingActive) return
-
-        try {
-            val service = BluetoothGattService(
-                BRIDGE_TRIGGER_SERVICE_UUID,
-                BluetoothGattService.SERVICE_TYPE_PRIMARY
-            )
-            gattServer = btManager.openGattServer(this, object : BluetoothGattServerCallback() {})
-            gattServer?.addService(service)
-
-            val settings = AdvertiseSettings.Builder()
-                .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
-                .setConnectable(true)
-                .build()
-            val data = AdvertiseData.Builder()
-                .addServiceUuid(ParcelUuid(BRIDGE_TRIGGER_SERVICE_UUID))
-                .build()
-
-            advertiser.startAdvertising(settings, data, advertiseCallback)
-            advertisingActive = true
-        } catch (_: SecurityException) {
-            // Permisiunea BLUETOOTH_ADVERTISE nu a fost acordată încă
+        if (!state.appleInRange) {
+            setLastEvent("Apel pe iPhone ignorat: iPhone prea departe (\${state.rssiDbm} dBm < \${cfg.rssiThresholdDbm} dBm).")
+            return
         }
-    }
 
-    @SuppressLint("MissingPermission")
-    private fun deactivateIosBridgeSignal() {
-        val btManager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return
-        try {
-            if (advertisingActive) {
-                btManager.adapter?.bluetoothLeAdvertiser?.stopAdvertising(advertiseCallback)
-                advertisingActive = false
+        when (cfg.bridgeMode) {
+            "ancs_busy_forward", "ios_shortcut_forwarding" -> {
+                // Trimite ANCS Decline (Ocupat) către iPhone -> operatorul redirecționează instant prin *67*<Android># către Android Auto cu voce completă!
+                val sent = ancsClient.performCallAction(event.notificationUidBytes, accept = false)
+                if (sent) {
+                    lastHandoverEpochMs = System.currentTimeMillis()
+                    setLastEvent("Apel detectat pe iPhone → transferat instant către Android Auto (*67*${androidNumClean}#).")
+                } else {
+                    setLastEvent("Apel detectat pe iPhone, dar comanda ANCS a eșuat. Verifică conexiunea Bluetooth.")
+                }
             }
-            gattServer?.close()
-            gattServer = null
-        } catch (_: SecurityException) {
-            // Ignoră dacă permisiunea a fost revocată
+            else -> {
+                // Mod Telecom ANCS: afișează apelul pe Android Auto și permite Răspunde/Respinge spre iPhone
+                BridgeConnectionService.presentIncomingAppleCall(
+                    context = this,
+                    appleNumber = cfg.applePhoneNumber,
+                    ancsUidBytes = event.notificationUidBytes
+                )
+                setLastEvent("Apel iPhone semnalat pe Android Auto prin BridgeConnectionService.")
+            }
         }
     }
 
-    private val advertiseCallback = object : AdvertiseCallback() {}
+    private fun setLastEvent(message: String) {
+        val updated = _runtimeState.value.copy(lastEventMessage = message)
+        _runtimeState.value = updated
+        updateNotification(updated)
+    }
 
     override fun onDestroy() {
-        deactivateIosBridgeSignal()
+        BridgeConnectionService.onCallActionCallback = null
+        if (::incomingCallMonitor.isInitialized) incomingCallMonitor.stop()
+        if (::ancsClient.isInitialized) ancsClient.disconnect()
         if (::proximityScanner.isInitialized) proximityScanner.stopScanning()
         if (::autoMonitor.isInitialized) autoMonitor.stop()
         super.onDestroy()
@@ -1031,9 +1698,14 @@ class CallBridgeForegroundService : LifecycleService() {
 
     private fun updateNotification(state: BridgeRuntimeState) {
         val text = when {
-            state.bridgeActive -> "Activ pe Android Auto • Apeluri preluate de pe \${state.targetAppleNumber}"
-            state.carState != CarProjectionState.DISCONNECTED -> "Android Auto conectat • Se caută iPhone în apropiere..."
-            else -> "În așteptare conexiune Android Auto"
+            state.bridgeActive -> "ACTIV pe Android Auto • iPhone ANCS (\${state.rssiDbm} dBm)"
+            state.carState != CarProjectionState.DISCONNECTED && state.ancsStatus != AncsConnectionStatus.READY ->
+                "Android Auto conectat • Conectează iPhone prin Bluetooth (ANCS)"
+            state.carState != CarProjectionState.DISCONNECTED ->
+                "Android Auto conectat • iPhone prea departe (\${state.rssiDbm} dBm)"
+            state.ancsStatus == AncsConnectionStatus.READY ->
+                "iPhone ANCS conectat • Se așteaptă Android Auto"
+            else -> "În așteptare Android Auto și iPhone"
         }
         val nm = getSystemService(NotificationManager::class.java)
         nm?.notify(NOTIFICATION_ID, buildNotification(text))
@@ -1045,7 +1717,7 @@ class CallBridgeForegroundService : LifecycleService() {
       path: `app/src/main/java/${pkgPath}/car/AutoBridgeCarAppService.kt`,
       language: 'kotlin',
       category: 'Cod Kotlin',
-      description: 'Aplicația nativă afișată pe ecranul mașinii Android Auto cu actualizare automată la schimbarea proximității BLE.',
+      description: 'Aplicația nativă afișată pe ecranul mașinii Android Auto cu starea live ANCS și a ultimului apel preluat.',
       content: `package ${pkg}.car
 
 import android.content.Intent
@@ -1062,6 +1734,7 @@ import androidx.car.app.validation.HostValidator
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import ${pkg}.bluetooth.AncsConnectionStatus
 import ${pkg}.data.BridgePreferences
 import ${pkg}.service.CallBridgeForegroundService
 
@@ -1091,10 +1764,11 @@ class AutoBridgeCarScreen(carContext: CarContext) : Screen(carContext) {
         val runtime = CallBridgeForegroundService.runtimeState.value
         val settings = BridgePreferences(carContext).load()
 
-        val statusTitle = if (runtime.bridgeActive) {
-            "Preluare apeluri iPhone activă"
-        } else {
-            "Se caută telefonul Apple în apropiere"
+        val statusTitle = when {
+            runtime.bridgeActive -> "Preluare apeluri iPhone activă"
+            runtime.ancsStatus == AncsConnectionStatus.CONNECTED_NO_ANCS -> "Activează Partajare notificări pe iPhone"
+            runtime.ancsStatus != AncsConnectionStatus.READY -> "Conectare Bluetooth ANCS la iPhone..."
+            else -> "iPhone în afara razei BLE"
         }
 
         val pane = Pane.Builder()
@@ -1106,20 +1780,29 @@ class AutoBridgeCarScreen(carContext: CarContext) : Screen(carContext) {
             )
             .addRow(
                 Row.Builder()
-                    .setTitle("Proximitate Bluetooth LE")
+                    .setTitle("Conexiune Apple ANCS")
                     .addText(
-                        if (runtime.appleInRange) {
-                            "În habitaclu (\${runtime.rssiDbm} dBm)"
+                        if (runtime.ancsStatus == AncsConnectionStatus.READY) {
+                            "\${runtime.ancsDeviceName} (\${runtime.rssiDbm} dBm)"
                         } else {
-                            "Indisponibil sau prea departe"
+                            runtime.ancsDetail
                         }
                     )
                     .build()
             )
+            .addRow(
+                Row.Builder()
+                    .setTitle("Ultimul eveniment")
+                    .addText(runtime.lastEventMessage)
+                    .build()
+            )
             .addAction(
                 Action.Builder()
-                    .setTitle("Actualizează starea")
-                    .setOnClickListener { invalidate() }
+                    .setTitle("Reconectează iPhone")
+                    .setOnClickListener {
+                        CallBridgeForegroundService.reconnectAncs(carContext)
+                        invalidate()
+                    }
                     .build()
             )
             .build()
@@ -1136,12 +1819,17 @@ class AutoBridgeCarScreen(carContext: CarContext) : Screen(carContext) {
       path: `app/src/main/java/${pkgPath}/ui/MainActivity.kt`,
       language: 'kotlin',
       category: 'Cod Kotlin',
-      description: 'Interfața Jetpack Compose de pe telefonul Android pentru configurarea completă (număr Apple, prag RSSI, răspuns automat) și permisiuni.',
+      description: 'Interfață Jetpack Compose cu diagnostic live (Android Auto + Apple ANCS), selector Bluetooth pentru iPhone-ul asociat și ghidul *67*.',
       content: `package ${pkg}.ui
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothManager
+import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -1153,17 +1841,36 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import ${pkg}.bluetooth.AncsConnectionStatus
+import ${pkg}.car.CarProjectionState
 import ${pkg}.data.BridgePreferences
 import ${pkg}.service.CallBridgeForegroundService
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
 
+    private var onPermissionsUpdated: (() -> Unit)? = null
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
         if (CallBridgeForegroundService.hasRequiredBluetoothPermissions(this)) {
             CallBridgeForegroundService.start(this)
+        }
+        onPermissionsUpdated?.invoke()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun loadBondedBluetoothDevices(): List<Pair<String, String>> {
+        if (!CallBridgeForegroundService.hasRequiredBluetoothPermissions(this)) return emptyList()
+        val btManager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return emptyList()
+        return try {
+            btManager.adapter?.bondedDevices
+                ?.map { (it.name ?: "Dispozitiv Bluetooth") to it.address }
+                ?.sortedByDescending { it.first.contains("iPhone", ignoreCase = true) }
+                ?: emptyList()
+        } catch (_: SecurityException) {
+            emptyList()
         }
     }
 
@@ -1177,7 +1884,17 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 var settings by remember { mutableStateOf(preferences.load()) }
                 val runtime by CallBridgeForegroundService.runtimeState.collectAsState()
+                var bondedDevices by remember { mutableStateOf(loadBondedBluetoothDevices()) }
                 var savedMessage by remember { mutableStateOf<String?>(null) }
+
+                DisposableEffect(Unit) {
+                    onPermissionsUpdated = {
+                        bondedDevices = loadBondedBluetoothDevices()
+                    }
+                    onDispose { onPermissionsUpdated = null }
+                }
+
+                val cleanAndroidNum = settings.androidPhoneNumber.replace(Regex("""[^\\d+]"""), "")
 
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Column(
@@ -1185,20 +1902,111 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
                             .padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         Text(
                             text = "${appNameKotlin}",
                             style = MaterialTheme.typography.headlineSmall
                         )
+
+                        // Card diagnostic live
+                        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = if (runtime.bridgeActive) {
+                                        "STARE: ACTIVĂ (gata de preluare pe Android Auto)"
+                                    } else {
+                                        "STARE: ÎN AȘTEPTARE"
+                                    },
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(
+                                    text = "Android Auto: \${if (runtime.carState != CarProjectionState.DISCONNECTED) "Conectat" else "Deconectat"}",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Text(
+                                    text = "iPhone ANCS: \${runtime.ancsStatus.name} (\${runtime.rssiDbm} dBm)",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Text(
+                                    text = runtime.ancsDetail,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Text(
+                                    text = "Ultimul eveniment: \${runtime.lastEventMessage}",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+
+                        // Pași obligatorii pe iPhone (1 dată)
+                        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Configurare obligatorie pe iPhone (o singură dată)",
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(
+                                    text = "1. Asociază prin Bluetooth iPhone-ul cu acest telefon Android, apoi pe iPhone intră în Setări → Bluetooth → (i) lângă Android și activează «Partajare notificări sistem».",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Text(
+                                    text = "2. Pe iPhone, din aplicația Telefon (tastatură), apelează o singură dată codul: *67*$cleanAndroidNum# (activează redirecționarea la ocupat). Pentru anulare oricând: #67#.",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+
+                        // Selector iPhone din dispozitivele Bluetooth asociate
                         Text(
-                            text = if (runtime.bridgeActive) {
-                                "Activ pe Android Auto • iPhone în proximitate (\${runtime.rssiDbm} dBm)"
-                            } else {
-                                "Stare Android Auto: \${runtime.carState.name}"
-                            },
-                            style = MaterialTheme.typography.bodyMedium
+                            text = "Selectează iPhone-ul asociat Bluetooth",
+                            style = MaterialTheme.typography.titleSmall
                         )
+                        if (bondedDevices.isEmpty()) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                                    }
+                                ) {
+                                    Text("Deschide Setări Bluetooth")
+                                }
+                                TextButton(onClick = { bondedDevices = loadBondedBluetoothDevices() }) {
+                                    Text("Reîncarcă")
+                                }
+                            }
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                bondedDevices.take(6).forEach { (name, address) ->
+                                    val selected = settings.appleDeviceAddress.equals(address, ignoreCase = true)
+                                    OutlinedButton(
+                                        onClick = {
+                                            settings = settings.copy(
+                                                appleDeviceName = name,
+                                                appleDeviceAddress = address
+                                            )
+                                            preferences.save(settings)
+                                            CallBridgeForegroundService.reconnectAncs(this@MainActivity)
+                                            savedMessage = "iPhone selectat: $name ($address). Se conectează ANCS..."
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = if (selected) "✓ $name ($address)" else "$name ($address)"
+                                        )
+                                    }
+                                }
+                            }
+                        }
 
                         OutlinedTextField(
                             value = settings.applePhoneNumber,
@@ -1216,14 +2024,6 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        OutlinedTextField(
-                            value = settings.appleDeviceName,
-                            onValueChange = { settings = settings.copy(appleDeviceName = it) },
-                            label = { Text("Nume Bluetooth iPhone") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
                                 text = "Prag proximitate BLE: \${settings.rssiThresholdDbm} dBm",
@@ -1234,7 +2034,7 @@ class MainActivity : ComponentActivity() {
                                 onValueChange = {
                                     settings = settings.copy(rssiThresholdDbm = it.roundToInt())
                                 },
-                                valueRange = -86f..-55f
+                                valueRange = -90f..-55f
                             )
                         }
 
@@ -1244,7 +2044,7 @@ class MainActivity : ComponentActivity() {
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Răspuns automat hands-free",
+                                text = "Răspuns automat hands-free pe Android Auto",
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Switch(
@@ -1255,20 +2055,25 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        Button(
-                            onClick = {
-                                preferences.save(settings)
-                                if (CallBridgeForegroundService.hasRequiredBluetoothPermissions(this@MainActivity)) {
-                                    CallBridgeForegroundService.start(this@MainActivity)
-                                    savedMessage = "Configurație salvată și serviciu activat."
-                                } else {
-                                    requestRuntimePermissions()
-                                    savedMessage = "Configurație salvată. Acordă permisiunile Bluetooth pentru pornire."
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text("Salvează și pornește monitorizarea")
+                            Button(
+                                onClick = {
+                                    preferences.save(settings)
+                                    if (CallBridgeForegroundService.hasRequiredBluetoothPermissions(this@MainActivity)) {
+                                        CallBridgeForegroundService.reconnectAncs(this@MainActivity)
+                                        savedMessage = "Configurație salvată și conectare ANCS repornită."
+                                    } else {
+                                        requestRuntimePermissions()
+                                        savedMessage = "Acordă permisiunile Bluetooth și Telefon pentru pornire."
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Salvează și conectează")
+                            }
                         }
 
                         if (savedMessage != null) {
@@ -1443,44 +2248,34 @@ jobs:
       path: 'README.md',
       language: 'markdown',
       category: 'Semnare & CI/CD',
-      description: 'Documentație tehnică completă de compilare, semnare APK și configurare pe iPhone.',
+      description: 'Documentație tehnică completă de compilare, semnare APK și configurare pe iPhone (Apple ANCS + *67*).',
       content: `# ${rawAppName} (v${versionTag})
 
-Aplicație Android Kotlin care detectează conectarea telefonului Android la **Android Auto** (\`CarConnection.CONNECTION_TYPE_PROJECTION\`), verifică proximitatea telefonului **Apple iPhone** (\`${config.appleDeviceName}\`, prag \`${config.rssiThresholdDbm} dBm\`) prin Bluetooth LE și preia apelurile asociate numărului **${config.applePhoneNumber}** direct pe ecranul și sistemul audio al mașinii.
+Aplicație Android Kotlin care detectează conectarea telefonului Android la **Android Auto** (\`CarConnection.CONNECTION_TYPE_PROJECTION\`), se conectează prin **Apple ANCS (BLE GATT)** la iPhone-ul asociat și transferă automat apelurile primite pe **${config.applePhoneNumber}** direct pe ecranul și sistemul audio al mașinii (Android Auto).
 
-## Configurație inclusă la generare
+## Cum funcționează (fără root, fără jailbreak, fără Shortcuts blocate de iOS)
 
-- **Număr iPhone (sursă apeluri):** \`${config.applePhoneNumber}\`
-- **Număr Android (Android Auto):** \`${config.androidPhoneNumber}\`
-- **Dispozitiv Apple monitorizat:** \`${config.appleDeviceName}\`
-- **Prag proximitate BLE RSSI:** \`${config.rssiThresholdDbm} dBm\`
-- **ID pachet Android:** \`${pkg}\`
-- **Alias certificat semnare:** \`${config.keystoreAlias.trim() || 'autobridge-release'}\`
+1. **Detectare apel în timp real pe iPhone (Apple ANCS):** telefonul Android se conectează nativ la serviciul Apple ANCS (\`7905F431-B5CE-4E99-A40F-4B1E122D00D0\`) al iPhone-ului asociat Bluetooth și măsoară proximitatea RSSI (\`${config.rssiThresholdDbm} dBm\`).
+2. **Transfer instant pe Android Auto:** doar atunci când telefonul Android este conectat la Android Auto și iPhone-ul este în habitaclu, la sosirea unui apel pe iPhone, Android trimite automat comanda ANCS *Decline (Ocupat)*.
+3. **Voce 100% nativă pe sistemul mașinii:** deoarece pe iPhone este activată o singură dată redirecționarea la ocupat (\`*67*${androidNumClean}#\`), operatorul mobil transferă instant apelul (cu numărul apelantului și voce HD) pe telefonul Android conectat la Android Auto!
+4. **Când ieși din mașină (Android Auto deconectat):** aplicația Android nu mai trimite comanda ANCS, deci apelurile sună din nou normal pe iPhone.
 
-## 1. Compilare și semnare APK (Local, o singură comandă)
+## Configurare pe iPhone (o singură dată, 1 minut)
 
-Cerințe: JDK 17, Gradle 8.10+ și Android SDK (API 35 + Build Tools).
+1. Asociază prin **Bluetooth** iPhone-ul cu telefonul Android, apoi intră pe iPhone în **Setări → Bluetooth → (i) lângă telefonul Android** și activează **Partajare notificări sistem (Share System Notifications)**.
+2. Deschide aplicația **AutoBridge AA** pe Android și selectează iPhone-ul din lista de dispozitive Bluetooth asociate.
+3. Pe iPhone, din aplicația **Telefon** (tastatură), apelează o singură dată codul GSM:
+   \`*67*${androidNumClean}#\`
+   *(Pentru a dezactiva oricând redirecționarea la ocupat, apelează \`#67#\`.)*
+
+## Compilare și semnare APK (Local)
 
 \`\`\`bash
 chmod +x build-signed-apk.sh
 ./build-signed-apk.sh
 \`\`\`
 
-APK-ul final semnat (V1/V2/V3/V4) și verificat cu \`apksigner verify\` va fi generat în:
-\`dist/AutoBridgeAA-v${versionTag}-signed.apk\`
-
-## 2. Compilare automată în Cloud (fără Android Studio)
-
-1. Creează un repository GitHub privat și încarcă **conținutul** acestui folder (astfel încât \`.github/workflows/build-signed-apk.yml\` să fie în rădăcina repository-ului).
-2. Accesează fila **Actions** → **Compile & Sign AutoBridge AA APK** → **Run workflow**.
-3. Descarcă fișierul \`AutoBridgeAA-v${versionTag}-signed.apk\` din secțiunea **Artifacts**.
-
-## 3. Configurare automatizare pe iPhone (Apple Shortcuts)
-
-Deoarece iOS nu permite unui telefon Android extern să preia direct canalul celular fără consimțământul iPhone-ului, configurează pe iPhone două automatizări simple în aplicația **Shortcuts (Scurtături)**:
-
-1. **La conectarea Bluetooth a mașinii / a telefonului Android** → Acțiunea **Call (Apelează)** \`*21*${androidNumClean}#\` (activează redirecționarea apelurilor de pe \`${config.applePhoneNumber}\` către \`${config.androidPhoneNumber}\`).
-2. **La deconectarea Bluetooth a mașinii** → Acțiunea **Call (Apelează)** \`##21#\` (dezactivează redirecționarea automată).
+APK-ul final semnat (V1/V2/V3/V4) este generat în \`dist/AutoBridgeAA-v${versionTag}-signed.apk\`.
 `,
     },
   ];

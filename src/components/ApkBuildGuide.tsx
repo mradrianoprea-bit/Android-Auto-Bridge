@@ -155,52 +155,49 @@ export function ApkBuildGuide({
         </section>
       </div>
 
-      {/* Configurare obligatorie pe iPhone (Apple Shortcuts) */}
+      {/* Configurare obligatorie pe iPhone (Apple ANCS + *67*) */}
       <section className="bg-white border border-slate-200 rounded-xl p-6 space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-100">
           <h2 className="text-base font-semibold text-slate-900 inline-flex items-center gap-2">
             <Smartphone className="w-4 h-4 text-blue-600" />
-            03. Configurare automatizare pe telefonul Apple ({config.appleDeviceName})
+            03. Configurare pe iPhone ({config.appleDeviceName}) — o singură dată
           </h2>
-          <span className="text-xs text-slate-500">Necesită 2 minute · Fără aplicații terțe pe iOS</span>
+          <span className="text-xs text-slate-500">Fără jailbreak · Fără Shortcuts blocate de iOS</span>
         </div>
 
         <p className="text-sm text-slate-600 leading-relaxed">
-          Sistemul de operare iOS restricționează accesul Bluetooth extern la apelurile celulare din motive de securitate. Pentru ca apelurile primite pe{' '}
-          <span className="font-mono tabular-nums text-slate-900 font-medium">{config.applePhoneNumber}</span>{' '}
-          să fie preluate automat pe Android Auto fără jailbreak, adaugă aceste două automatizări native în aplicația <strong>Shortcuts (Scurtături)</strong> de pe iPhone:
+          Pe iOS, aplicația Shortcuts blochează apelarea codurilor MMI (<code className="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded">*21*</code>). În schimb, aplicația folosește serviciul nativ <strong>Apple ANCS</strong> + redirecționarea GSM la ocupat (<strong><code className="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded">*67*</code></strong>): când ești conectat la Android Auto, telefonul Android respinge automat apelul pe iPhone prin ANCS, iar rețeaua mobilă îl transferă instant cu voce HD pe Android Auto. Când ieși din mașină, apelurile sună normal pe iPhone.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="border border-slate-200 rounded-lg p-4 space-y-2">
             <div className="text-sm font-semibold text-slate-900">
-              Automatizare A — Activare la urcarea în mașină
+              Pasul 1 — Activare Apple ANCS (Bluetooth)
             </div>
             <ul className="text-xs text-slate-600 space-y-1.5 list-disc list-inside leading-relaxed">
-              <li>Trigger: <strong>Bluetooth</strong> → se conectează la unitatea mașinii sau la telefonul Android.</li>
-              <li>Opțiune: <strong>Run Immediately</strong> (Rulează imediat, fără confirmare).</li>
-              <li>
-                Acțiune: <strong>Call (Apelează)</strong> codul MMI{' '}
-                <code className="font-mono text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">
-                  *21*{androidClean}#
-                </code>
-              </li>
+              <li>Asociază prin <strong>Bluetooth</strong> iPhone-ul cu telefonul Android.</li>
+              <li>Pe iPhone, intră în <strong>Setări → Bluetooth → (i)</strong> lângă telefonul Android și activează <strong>Partajare notificări sistem (Share System Notifications)</strong>.</li>
+              <li>Deschide <strong>AutoBridge AA</strong> pe Android și selectează iPhone-ul din lista dispozitivelor asociate până apare <code className="font-mono text-slate-900 bg-slate-100 px-1 rounded">ANCS: READY</code>.</li>
             </ul>
           </div>
 
           <div className="border border-slate-200 rounded-lg p-4 space-y-2">
             <div className="text-sm font-semibold text-slate-900">
-              Automatizare B — Oprire la coborârea din mașină
+              Pasul 2 — Redirecționare la ocupat (*67*) pe iPhone
             </div>
             <ul className="text-xs text-slate-600 space-y-1.5 list-disc list-inside leading-relaxed">
-              <li>Trigger: <strong>Bluetooth</strong> → se deconectează de la unitatea mașinii.</li>
-              <li>Opțiune: <strong>Run Immediately</strong> (Rulează imediat).</li>
+              <li>Pe iPhone, deschide aplicația <strong>Telefon (Tastatură)</strong> și apelează o singură dată codul GSM:</li>
               <li>
-                Acțiune: <strong>Call (Apelează)</strong> codul MMI{' '}
                 <code className="font-mono text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">
-                  ##21#
+                  *67*{androidClean}#
                 </code>{' '}
-                pentru revenirea apelurilor pe iPhone.
+                (transferă apelul către Android doar când e respins automat la conectarea Android Auto).
+              </li>
+              <li>
+                Pentru dezactivare oricând de pe iPhone, apelează{' '}
+                <code className="font-mono text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">
+                  #67#
+                </code>.
               </li>
             </ul>
           </div>

@@ -26,8 +26,14 @@ function loadInitialConfig(): BridgeConfig {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_BRIDGE_CONFIG;
-    const parsed = JSON.parse(raw) as Partial<BridgeConfig>;
-    return { ...DEFAULT_BRIDGE_CONFIG, ...parsed };
+    const parsed = JSON.parse(raw) as Partial<BridgeConfig> & { bridgeMode?: string };
+    const migratedMode =
+      parsed.bridgeMode === 'ancs_busy_forward' ||
+      parsed.bridgeMode === 'ancs_signal_only' ||
+      parsed.bridgeMode === 'hfp_telecom_bridge'
+        ? parsed.bridgeMode
+        : 'ancs_busy_forward';
+    return { ...DEFAULT_BRIDGE_CONFIG, ...parsed, bridgeMode: migratedMode };
   } catch {
     return DEFAULT_BRIDGE_CONFIG;
   }

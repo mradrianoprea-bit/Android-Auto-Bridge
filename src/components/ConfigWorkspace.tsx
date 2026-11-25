@@ -175,35 +175,35 @@ export function ConfigWorkspace({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => handleModeChange('ios_shortcut_forwarding')}
+                onClick={() => handleModeChange('ancs_busy_forward')}
                 className={`p-4 text-left rounded-lg border transition-colors ${
-                  config.bridgeMode === 'ios_shortcut_forwarding'
+                  config.bridgeMode === 'ancs_busy_forward'
                     ? 'border-blue-600 bg-blue-50/50 text-slate-900'
                     : 'border-slate-200 hover:border-slate-300 text-slate-700'
                 }`}
               >
                 <div className="text-sm font-semibold text-slate-900">
-                  Semnal BLE + Redirecționare iOS
+                  Apple ANCS + Redirecționare la ocupat (*67*)
                 </div>
                 <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                  Recomandat fără root. La conectarea Android Auto, iPhone-ul activează automat redirecționarea către Android (*21*) și o oprește la deconectare (##21#).
+                  Recomandat (voce HD nativă pe Android Auto, fără root/Shortcuts). La apel pe iPhone, Android trimite ANCS Ocupat, iar operatorul transferă apelul instant pe Android Auto.
                 </p>
               </button>
 
               <button
                 type="button"
-                onClick={() => handleModeChange('hfp_telecom_bridge')}
+                onClick={() => handleModeChange('ancs_signal_only')}
                 className={`p-4 text-left rounded-lg border transition-colors ${
-                  config.bridgeMode === 'hfp_telecom_bridge'
+                  config.bridgeMode === 'ancs_signal_only'
                     ? 'border-blue-600 bg-blue-50/50 text-slate-900'
                     : 'border-slate-200 hover:border-slate-300 text-slate-700'
                 }`}
               >
                 <div className="text-sm font-semibold text-slate-900">
-                  Telecom ConnectionService + HFP Client
+                  Apple ANCS + Telecom ConnectionService
                 </div>
                 <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                  Pentru unități Android cu profil Bluetooth HFP Hands-Free Client sau punte VoIP locală, rutând audio direct pe Android Auto.
+                  Afișează apelul iPhone pe Android Auto cu butoane Răspunde/Respinge trimise spre iPhone prin ANCS (fără redirecționare operator *67*).
                 </p>
               </button>
             </div>

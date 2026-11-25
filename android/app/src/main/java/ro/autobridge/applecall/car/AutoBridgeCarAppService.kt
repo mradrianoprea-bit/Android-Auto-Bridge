@@ -14,6 +14,7 @@ import androidx.car.app.validation.HostValidator
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import ro.autobridge.applecall.bluetooth.AncsConnectionStatus
 import ro.autobridge.applecall.data.BridgePreferences
 import ro.autobridge.applecall.service.CallBridgeForegroundService
 
@@ -43,10 +44,11 @@ class AutoBridgeCarScreen(carContext: CarContext) : Screen(carContext) {
         val runtime = CallBridgeForegroundService.runtimeState.value
         val settings = BridgePreferences(carContext).load()
 
-        val statusTitle = if (runtime.bridgeActive) {
-            "Preluare apeluri iPhone activă"
-        } else {
-            "Se caută telefonul Apple în apropiere"
+        val statusTitle = when {
+            runtime.bridgeActive -> "Preluare apeluri iPhone activă"
+            runtime.ancsStatus == AncsConnectionStatus.CONNECTED_NO_ANCS -> "Activează Partajare notificări pe iPhone"
+            runtime.ancsStatus != AncsConnectionStatus.READY -> "Conectare Bluetooth ANCS la iPhone..."
+            else -> "iPhone în afara razei BLE"
         }
 
         val pane = Pane.Builder()
@@ -58,20 +60,29 @@ class AutoBridgeCarScreen(carContext: CarContext) : Screen(carContext) {
             )
             .addRow(
                 Row.Builder()
-                    .setTitle("Proximitate Bluetooth LE")
+                    .setTitle("Conexiune Apple ANCS")
                     .addText(
-                        if (runtime.appleInRange) {
-                            "În habitaclu (${runtime.rssiDbm} dBm)"
+                        if (runtime.ancsStatus == AncsConnectionStatus.READY) {
+                            "${runtime.ancsDeviceName} (${runtime.rssiDbm} dBm)"
                         } else {
-                            "Indisponibil sau prea departe"
+                            runtime.ancsDetail
                         }
                     )
                     .build()
             )
+            .addRow(
+                Row.Builder()
+                    .setTitle("Ultimul eveniment")
+                    .addText(runtime.lastEventMessage)
+                    .build()
+            )
             .addAction(
                 Action.Builder()
-                    .setTitle("Actualizează starea")
-                    .setOnClickListener { invalidate() }
+                    .setTitle("Reconectează iPhone")
+                    .setOnClickListener {
+                        CallBridgeForegroundService.reconnectAncs(carContext)
+                        invalidate()
+                    }
                     .build()
             )
             .build()

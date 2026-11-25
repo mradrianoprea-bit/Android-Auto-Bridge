@@ -29,7 +29,6 @@ class AppleProximityScanner(
     private val rssiThresholdProvider: () -> Int
 ) {
     companion object {
-        // Apple Inc. Bluetooth SIG Company Identifier (0x004C)
         const val APPLE_MANUFACTURER_ID = 0x004C
         private const val STALE_TIMEOUT_MS = 12_000L
     }
@@ -96,7 +95,7 @@ class AppleProximityScanner(
             .build()
 
         val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
             .build()
 
         try {
@@ -114,7 +113,7 @@ class AppleProximityScanner(
         try {
             btManager.adapter?.bluetoothLeScanner?.stopScan(scanCallback)
         } catch (_: SecurityException) {
-            // Ignoră dacă permisiunea a fost revocată
+            // Ignoră
         }
         isScanning = false
         rssiWindow.clear()

@@ -7,6 +7,7 @@ data class BridgeSettings(
     val applePhoneNumber: String = BuildConfig.DEFAULT_APPLE_NUMBER,
     val androidPhoneNumber: String = BuildConfig.DEFAULT_ANDROID_NUMBER,
     val appleDeviceName: String = BuildConfig.DEFAULT_APPLE_DEVICE_NAME,
+    val appleDeviceAddress: String = BuildConfig.DEFAULT_APPLE_DEVICE_ADDRESS,
     val rssiThresholdDbm: Int = BuildConfig.DEFAULT_RSSI_THRESHOLD,
     val bridgeMode: String = BuildConfig.DEFAULT_BRIDGE_MODE,
     val autoAnswerEnabled: Boolean = BuildConfig.DEFAULT_AUTO_ANSWER,
@@ -25,6 +26,8 @@ class BridgePreferences(context: Context) {
             ?: BuildConfig.DEFAULT_ANDROID_NUMBER,
         appleDeviceName = prefs.getString("apple_device", BuildConfig.DEFAULT_APPLE_DEVICE_NAME)
             ?: BuildConfig.DEFAULT_APPLE_DEVICE_NAME,
+        appleDeviceAddress = prefs.getString("apple_address", BuildConfig.DEFAULT_APPLE_DEVICE_ADDRESS)
+            ?: BuildConfig.DEFAULT_APPLE_DEVICE_ADDRESS,
         rssiThresholdDbm = prefs.getInt("rssi_threshold", BuildConfig.DEFAULT_RSSI_THRESHOLD),
         bridgeMode = prefs.getString("bridge_mode", BuildConfig.DEFAULT_BRIDGE_MODE)
             ?: BuildConfig.DEFAULT_BRIDGE_MODE,
@@ -39,6 +42,7 @@ class BridgePreferences(context: Context) {
             .putString("apple_phone", settings.applePhoneNumber.trim())
             .putString("android_phone", settings.androidPhoneNumber.trim())
             .putString("apple_device", settings.appleDeviceName.trim())
+            .putString("apple_address", settings.appleDeviceAddress.trim().uppercase())
             .putInt("rssi_threshold", settings.rssiThresholdDbm)
             .putString("bridge_mode", settings.bridgeMode)
             .putBoolean("auto_answer", settings.autoAnswerEnabled)

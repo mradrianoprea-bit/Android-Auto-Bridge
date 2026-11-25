@@ -4,4 +4,5 @@
 -keep class ro.autobridge.applecall.car.** { *; }
 -keep class ro.autobridge.applecall.telecom.** { *; }
 -keep class ro.autobridge.applecall.service.** { *; }
+-keep class ro.autobridge.applecall.bluetooth.** { *; }
 -dontwarn androidx.car.app.**

@@ -60,9 +60,9 @@ export function AndroidAutoSimulator({ config }: AndroidAutoSimulatorProps) {
     {
       id: 'init-2',
       timestamp: nowTimeString(),
-      source: 'BLE Proximitate',
+      source: 'BLE ANCS',
       level: 'nominal',
-      message: `Dispozitiv "${config.appleDeviceName}" detectat în habitaclu (${distanceToRssi(1.1)} dBm).`,
+      message: `Apple ANCS activ pe "${config.appleDeviceName}" (${distanceToRssi(1.1)} dBm).`,
     },
     {
       id: 'init-3',
@@ -112,7 +112,7 @@ export function AndroidAutoSimulator({ config }: AndroidAutoSimulatorProps) {
         appendLog(
           'Punte Apeluri',
           'warning',
-          `Punte dezactivată: ${reason}.${config.autoRevertOnDisconnect ? ' Redirecționarea iOS (##21#) oprită.' : ''}`
+          `Punte dezactivată: ${reason}. Comanda ANCS este oprită — apelurile rămân pe iPhone.`
         );
         if (callState === 'ringing_aa') {
           setCallState('ringing_iphone_only');
@@ -188,11 +188,11 @@ export function AndroidAutoSimulator({ config }: AndroidAutoSimulatorProps) {
       appendLog(
         'Punte Apeluri',
         'nominal',
-        `Apel interceptat și rutat pe ecranul Android Auto prin ${
-          config.bridgeMode === 'ios_shortcut_forwarding'
-            ? 'redirecționare automată iOS → Android'
-            : 'BridgeConnectionService (HFP/Telecom)'
-        }.`
+        `Apel detectat prin Apple ANCS și preluat pe Android Auto (${
+          config.bridgeMode === 'ancs_busy_forward'
+            ? 'ANCS Ocupat → redirecționare operator *67* cu voce HD pe mașină'
+            : 'BridgeConnectionService ANCS Telecom'
+        }).`
       );
     } else {
       setCallState('ringing_iphone_only');
@@ -438,7 +438,7 @@ export function AndroidAutoSimulator({ config }: AndroidAutoSimulatorProps) {
             <span>Serviciu: AutoBridgeCarAppService</span>
             <span className="font-mono tabular-nums">
               Prag: {config.rssiThresholdDbm} dBm · Mod:{' '}
-              {config.bridgeMode === 'ios_shortcut_forwarding' ? 'BLE+iOS' : 'HFP'}
+              {config.bridgeMode === 'ancs_busy_forward' ? 'ANCS+*67*' : 'ANCS'}
             </span>
           </div>
         </div>
